@@ -60,6 +60,7 @@ async function initializeApp() {
         updateDashboard();
         updateSelects();
         initializeCalendar();
+        updateTasksList(); // タスクリストを明示的に更新
     }, 100);
     
     console.log('プロジェクト管理システムの初期化が完了しました');
@@ -886,10 +887,10 @@ function updateTasksList() {
     }
     
     tasksBody.innerHTML = filteredTasks.map(task => {
-        const member = currentData.members.find(m => m.id === task.assigneeId);
-        const requester = currentData.members.find(m => m.id === task.requesterId);
-        const approver = currentData.members.find(m => m.id === task.approverId);
-        const project = currentData.projects.find(p => p.id === task.projectId);
+        const member = currentData.members.find(m => m.id == task.assigneeId);
+        const requester = currentData.members.find(m => m.id == task.requesterId);
+        const approver = currentData.members.find(m => m.id == task.approverId);
+        const project = currentData.projects.find(p => p.id == task.projectId);
         
         // 承認関連のアクションボタンを生成
         let approvalActions = '';
@@ -1238,8 +1239,10 @@ function openTaskModal(taskId = null) {
             document.getElementById('task-end-date').value = task.endDate;
             document.getElementById('task-priority').value = task.priority;
             document.getElementById('task-status').value = task.status;
-            document.getElementById('task-requester').value = task.requesterId || '';
-            document.getElementById('task-approver').value = task.approverId || '';
+            const requesterId = task.requesterId;
+            const approverId = task.approverId;
+            document.getElementById('task-requester').value = requesterId || '';
+            document.getElementById('task-approver').value = approverId || '';
             document.getElementById('task-approval-documents').value = task.approvalDocuments || '';
         }
     } else {

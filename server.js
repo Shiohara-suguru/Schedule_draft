@@ -172,10 +172,52 @@ function initializeData() {
 // データの読み込み
 function loadData() {
     try {
-        return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+        const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+        // データ移行処理：既存のタスクに承認機能のフィールドを追加
+        migrateTaskData(data);
+        return data;
     } catch (error) {
         console.error('データの読み込みエラー:', error);
         return { members: [], projects: [], tasks: [], routineJobs: [], workLogs: [] };
+    }
+}
+
+// タスクデータの移行処理（承認機能対応）
+function migrateTaskData(data) {
+    let updated = false;
+    
+    data.tasks.forEach(task => {
+        // 承認関連フィールドが存在しない場合は追加
+        if (!task.hasOwnProperty('requesterId')) {
+            task.requesterId = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approverId')) {
+            task.approverId = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approvalDocuments')) {
+            task.approvalDocuments = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approvalNotes')) {
+            task.approvalNotes = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('submittedAt')) {
+            task.submittedAt = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approvedAt')) {
+            task.approvedAt = null;
+            updated = true;
+        }
+    });
+    
+    // 更新があった場合はファイルに保存
+    if (updated) {
+        saveData(data);
+        console.log('タスクデータを承認機能対応に移行しました');
     }
 }
 
