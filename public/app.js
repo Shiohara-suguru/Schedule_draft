@@ -222,9 +222,9 @@ function updateDashboardCharts() {
     const projectStatusCtx = document.getElementById('project-status-chart');
     if (projectStatusCtx) {
         const statusCounts = {
-            pending: currentData.projects.filter(p => p.status === 'pending').length,
-            in_progress: currentData.projects.filter(p => p.status === 'in_progress').length,
-            completed: currentData.projects.filter(p => p.status === 'completed').length
+            pending: currentData.projects?.filter(p => p.status === 'pending').length || 0,
+            in_progress: currentData.projects?.filter(p => p.status === 'in_progress').length || 0,
+            completed: currentData.projects?.filter(p => p.status === 'completed').length || 0
         };
         
         if (charts.projectStatus) charts.projectStatus.destroy();
@@ -242,6 +242,9 @@ function updateDashboardCharts() {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                animation: {
+                    duration: 300
+                },
                 plugins: {
                     legend: {
                         position: 'bottom'
@@ -255,9 +258,9 @@ function updateDashboardCharts() {
     const taskProgressCtx = document.getElementById('task-progress-chart');
     if (taskProgressCtx) {
         const taskStatusCounts = {
-            pending: currentData.tasks.filter(t => t.status === 'pending').length,
-            in_progress: currentData.tasks.filter(t => t.status === 'in_progress').length,
-            completed: currentData.tasks.filter(t => t.status === 'completed').length
+            pending: currentData.tasks?.filter(t => t.status === 'pending').length || 0,
+            in_progress: currentData.tasks?.filter(t => t.status === 'in_progress').length || 0,
+            completed: currentData.tasks?.filter(t => t.status === 'completed').length || 0
         };
         
         if (charts.taskProgress) charts.taskProgress.destroy();
@@ -276,6 +279,9 @@ function updateDashboardCharts() {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                animation: {
+                    duration: 0
+                },
                 plugins: {
                     legend: {
                         display: false
@@ -284,8 +290,11 @@ function updateDashboardCharts() {
                 scales: {
                     y: {
                         beginAtZero: true,
+                        min: 0,
+                        max: Math.max(10, Math.max(...Object.values(taskStatusCounts)) + 2),
                         ticks: {
-                            stepSize: 1
+                            stepSize: 1,
+                            precision: 0
                         }
                     }
                 }
@@ -527,19 +536,37 @@ function renderWorkloadChart(workloadData, memberFilter) {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                animation: {
+                    duration: 300
+                },
+                interaction: {
+                    intersect: false
+                },
                 plugins: {
                     legend: {
                         display: false
                     }
                 },
                 scales: {
+                    x: {
+                        grid: {
+                            display: true,
+                            color: 'rgba(0,0,0,0.1)'
+                        }
+                    },
                     y: {
                         beginAtZero: true,
+                        min: 0,
                         max: 12,
                         ticks: {
+                            stepSize: 2,
                             callback: function(value) {
                                 return value + 'h';
                             }
+                        },
+                        grid: {
+                            display: true,
+                            color: 'rgba(0,0,0,0.1)'
                         }
                     }
                 },
@@ -550,7 +577,9 @@ function renderWorkloadChart(workloadData, memberFilter) {
                             if (workload >= 10) return '#ef4444';
                             if (workload >= 8) return '#f59e0b';
                             return '#10b981';
-                        }
+                        },
+                        radius: 4,
+                        hoverRadius: 6
                     }
                 }
             }
@@ -581,14 +610,37 @@ function renderWorkloadChart(workloadData, memberFilter) {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                animation: {
+                    duration: 300
+                },
+                interaction: {
+                    intersect: false
+                },
+                plugins: {
+                    legend: {
+                        position: 'top'
+                    }
+                },
                 scales: {
+                    x: {
+                        grid: {
+                            display: true,
+                            color: 'rgba(0,0,0,0.1)'
+                        }
+                    },
                     y: {
                         beginAtZero: true,
+                        min: 0,
                         max: 12,
                         ticks: {
+                            stepSize: 2,
                             callback: function(value) {
                                 return value + 'h';
                             }
+                        },
+                        grid: {
+                            display: true,
+                            color: 'rgba(0,0,0,0.1)'
                         }
                     }
                 }
@@ -860,21 +912,28 @@ function updateRoutineWorkloadChart() {
     
     const memberWorkload = {};
     
-    currentData.routineJobs.filter(job => job.isActive).forEach(job => {
-        const member = currentData.members.find(m => m.id === job.assigneeId);
+    const activeJobs = currentData.routineJobs?.filter(job => job.isActive) || [];
+    activeJobs.forEach(job => {
+        const member = currentData.members?.find(m => m.id === job.assigneeId);
         if (member) {
-            const weeklyHours = job.dailyHours * job.weekdays.length;
+            const weeklyHours = (job.dailyHours || 0) * (job.weekdays?.length || 0);
             memberWorkload[member.name] = (memberWorkload[member.name] || 0) + weeklyHours;
         }
     });
     
     const labels = Object.keys(memberWorkload);
-    const data = Object.values(memberWorkload);
+    const data = Object.values(memberWorkload).filter(d => !isNaN(d) && d > 0);
     
-    if (labels.length === 0) {
-        ctx.getContext('2d').clearRect(0, 0, ctx.width, ctx.height);
+    if (labels.length === 0 || data.length === 0) {
+        // 空のデータの場合はチャートをクリア
+        if (charts.routineWorkload) {
+            charts.routineWorkload.destroy();
+            charts.routineWorkload = null;
+        }
+        ctx.style.display = 'none';
         return;
     }
+    ctx.style.display = 'block';
     
     charts.routineWorkload = new Chart(ctx, {
         type: 'bar',
@@ -893,6 +952,9 @@ function updateRoutineWorkloadChart() {
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            animation: {
+                duration: 300
+            },
             plugins: {
                 legend: {
                     display: false
@@ -901,10 +963,22 @@ function updateRoutineWorkloadChart() {
             scales: {
                 y: {
                     beginAtZero: true,
+                    min: 0,
+                    max: data.length > 0 ? Math.max(40, Math.max(...data) + 5) : 40,
                     ticks: {
+                        stepSize: 5,
                         callback: function(value) {
                             return value + 'h';
                         }
+                    },
+                    grid: {
+                        display: true,
+                        color: 'rgba(0,0,0,0.1)'
+                    }
+                },
+                x: {
+                    grid: {
+                        display: false
                     }
                 }
             }
