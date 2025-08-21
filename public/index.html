@@ -189,6 +189,9 @@
                             <option value="pending">未着手</option>
                             <option value="in_progress">進行中</option>
                             <option value="completed">完了</option>
+                            <option value="pending_approval">承認待ち</option>
+                            <option value="approved">承認済み</option>
+                            <option value="rejected">却下</option>
                         </select>
                         <select id="task-member-filter">
                             <option value="">すべてのメンバー</option>
@@ -199,6 +202,9 @@
                             <option value="medium">中</option>
                             <option value="low">低</option>
                         </select>
+                        <button id="export-csv-btn" class="btn btn-secondary">
+                            <i class="fas fa-download"></i> CSV出力
+                        </button>
                     </div>
                     
                     <div class="table-container">
@@ -208,6 +214,8 @@
                                     <th>タスク名</th>
                                     <th>プロジェクト</th>
                                     <th>担当者</th>
+                                    <th>依頼者</th>
+                                    <th>承認者</th>
                                     <th>開始日</th>
                                     <th>終了日</th>
                                     <th>工数</th>
@@ -390,6 +398,20 @@
                     </div>
                     <div class="form-row">
                         <div class="form-group">
+                            <label for="task-requester">依頼者</label>
+                            <select id="task-requester">
+                                <option value="">依頼者を選択</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="task-approver">承認者（確認者）</label>
+                            <select id="task-approver">
+                                <option value="">承認者を選択</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
                             <label for="task-start-date">開始日 <span class="required">*</span></label>
                             <input type="date" id="task-start-date" required>
                         </div>
@@ -413,8 +435,16 @@
                                 <option value="pending">未着手</option>
                                 <option value="in_progress">進行中</option>
                                 <option value="completed">完了</option>
+                                <option value="pending_approval">承認待ち</option>
+                                <option value="approved">承認済み</option>
+                                <option value="rejected">却下</option>
                             </select>
                         </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="task-approval-documents">承認に必要な資料リンク（OneDrive等）</label>
+                        <input type="url" id="task-approval-documents" placeholder="https://contoso-my.sharepoint.com/:f:/g/personal/user_contoso_com/...">
+                        <small class="form-hint">OneDrive、SharePoint等のリンクを入力してください</small>
                     </div>
                     <div id="workload-warning" class="workload-warning" style="display: none;">
                         <i class="fas fa-exclamation-triangle"></i>
@@ -530,6 +560,80 @@
     <!-- ローディング表示 -->
     <div id="loading" class="loading">
         <div class="loading-spinner"></div>
+    </div>
+
+    <!-- 承認アクションモーダル -->
+    <div id="approval-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-check-circle"></i> <span id="approval-modal-title">タスク承認</span></h3>
+                <button class="modal-close" onclick="closeApprovalModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="approval-task-info" class="approval-info">
+                    <!-- タスク情報がここに表示されます -->
+                </div>
+                <form id="approval-form">
+                    <input type="hidden" id="approval-task-id">
+                    <input type="hidden" id="approval-action">
+                    
+                    <div class="form-group">
+                        <label for="approval-notes">コメント</label>
+                        <textarea id="approval-notes" rows="4" placeholder="承認・却下の理由やコメントを入力してください"></textarea>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="button" id="approve-btn" class="btn btn-success" onclick="submitApproval('approve')">
+                            <i class="fas fa-check"></i> 承認
+                        </button>
+                        <button type="button" id="reject-btn" class="btn btn-danger" onclick="submitApproval('reject')">
+                            <i class="fas fa-times"></i> 却下
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="closeApprovalModal()">
+                            <i class="fas fa-times"></i> キャンセル
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 承認申請モーダル -->
+    <div id="submit-approval-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-paper-plane"></i> 承認申請</h3>
+                <button class="modal-close" onclick="closeSubmitApprovalModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="submit-approval-task-info" class="approval-info">
+                    <!-- タスク情報がここに表示されます -->
+                </div>
+                <form id="submit-approval-form">
+                    <input type="hidden" id="submit-approval-task-id">
+                    
+                    <div class="form-group">
+                        <label for="submit-approval-documents">承認に必要な資料リンク（OneDrive等）</label>
+                        <input type="url" id="submit-approval-documents" placeholder="https://contoso-my.sharepoint.com/:f:/g/personal/user_contoso_com/...">
+                        <small class="form-hint">OneDrive、SharePoint等のリンクを入力してください</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="submit-approval-notes">申請コメント</label>
+                        <textarea id="submit-approval-notes" rows="3" placeholder="承認依頼の詳細やコメントを入力してください"></textarea>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-paper-plane"></i> 承認申請
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="closeSubmitApprovalModal()">
+                            <i class="fas fa-times"></i> キャンセル
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
     </div>
 
     <!-- 通知表示 -->

@@ -59,13 +59,19 @@ function initializeData() {
                     name: 'デザインコンセプト作成',
                     description: '新サイトのデザインコンセプトとワイヤーフレーム作成',
                     assigneeId: 4,
+                    requesterId: 2, // 依頼者
+                    approverId: 1, // 承認者
                     startDate: '2025-08-21',
                     endDate: '2025-08-28',
                     estimatedHours: 40,
                     actualHours: 20,
                     status: 'in_progress',
                     priority: 'high',
-                    dependencies: []
+                    dependencies: [],
+                    approvalDocuments: '', // OneDriveリンク等
+                    approvalNotes: '', // 承認時のコメント
+                    approvedAt: null, // 承認日時
+                    submittedForApprovalAt: null // 承認申請日時
                 },
                 {
                     id: 2,
@@ -73,13 +79,19 @@ function initializeData() {
                     name: 'フロントエンド開発',
                     description: 'HTML/CSS/JavaScriptによるフロントエンド実装',
                     assigneeId: 1,
+                    requesterId: 2,
+                    approverId: 3,
                     startDate: '2025-08-29',
                     endDate: '2025-09-20',
                     estimatedHours: 120,
                     actualHours: 0,
                     status: 'pending',
                     priority: 'high',
-                    dependencies: [1]
+                    dependencies: [1],
+                    approvalDocuments: '',
+                    approvalNotes: '',
+                    approvedAt: null,
+                    submittedForApprovalAt: null
                 },
                 {
                     id: 3,
@@ -87,13 +99,19 @@ function initializeData() {
                     name: 'バックエンド開発',
                     description: 'サーバーサイドの機能実装',
                     assigneeId: 1,
+                    requesterId: 2,
+                    approverId: 3,
                     startDate: '2025-09-01',
                     endDate: '2025-09-25',
                     estimatedHours: 100,
                     actualHours: 0,
-                    status: 'pending',
+                    status: 'pending_approval',
                     priority: 'high',
-                    dependencies: [1]
+                    dependencies: [1],
+                    approvalDocuments: 'https://contoso-my.sharepoint.com/:f:/g/personal/user_contoso_com/sample_folder',
+                    approvalNotes: '',
+                    approvedAt: null,
+                    submittedForApprovalAt: '2025-08-21T06:00:00.000Z'
                 },
                 {
                     id: 4,
@@ -101,13 +119,19 @@ function initializeData() {
                     name: 'マーケット調査',
                     description: '競合分析とターゲット市場の調査',
                     assigneeId: 2,
+                    requesterId: 3,
+                    approverId: 2,
                     startDate: '2025-09-01',
                     endDate: '2025-09-15',
                     estimatedHours: 60,
                     actualHours: 0,
                     status: 'pending',
                     priority: 'medium',
-                    dependencies: []
+                    dependencies: [],
+                    approvalDocuments: '',
+                    approvalNotes: '',
+                    approvedAt: null,
+                    submittedForApprovalAt: null
                 }
             ],
             routineJobs: [
@@ -363,8 +387,8 @@ app.get('/api/tasks', (req, res) => {
 app.post('/api/tasks', (req, res) => {
     const data = loadData();
     const { 
-        projectId, name, description, assigneeId, startDate, endDate, 
-        estimatedHours, priority, dependencies 
+        projectId, name, description, assigneeId, requesterId, approverId, 
+        startDate, endDate, estimatedHours, priority, dependencies, approvalDocuments 
     } = req.body;
     
     if (!projectId || !name || !assigneeId || !startDate || !endDate || !estimatedHours) {
@@ -401,13 +425,19 @@ app.post('/api/tasks', (req, res) => {
         name,
         description: description || '',
         assigneeId: parseInt(assigneeId),
+        requesterId: requesterId ? parseInt(requesterId) : null,
+        approverId: approverId ? parseInt(approverId) : null,
         startDate,
         endDate,
         estimatedHours: parseFloat(estimatedHours),
         actualHours: 0,
         status: 'pending',
         priority: priority || 'medium',
-        dependencies: dependencies || []
+        dependencies: dependencies || [],
+        approvalDocuments: approvalDocuments || '',
+        approvalNotes: '',
+        approvedAt: null,
+        submittedForApprovalAt: null
     };
     
     data.tasks.push(newTask);
@@ -459,6 +489,156 @@ app.delete('/api/tasks/:id', (req, res) => {
         res.status(500).json({ error: 'データの保存に失敗しました' });
     }
 });
+
+// タスク承認関連
+app.post('/api/tasks/:id/submit-approval', (req, res) => {
+    const data = loadData();
+    const taskId = parseInt(req.params.id);
+    const { approvalDocuments, notes } = req.body;
+    
+    const taskIndex = data.tasks.findIndex(t => t.id === taskId);
+    if (taskIndex === -1) {
+        return res.status(404).json({ error: 'タスクが見つかりません' });
+    }
+    
+    data.tasks[taskIndex] = {
+        ...data.tasks[taskIndex],
+        status: 'pending_approval',
+        approvalDocuments: approvalDocuments || '',
+        submittedForApprovalAt: new Date().toISOString(),
+        approvalNotes: notes || ''
+    };
+    
+    if (saveData(data)) {
+        res.json({ success: true, task: data.tasks[taskIndex] });
+    } else {
+        res.status(500).json({ error: 'データの保存に失敗しました' });
+    }
+});
+
+app.post('/api/tasks/:id/approve', (req, res) => {
+    const data = loadData();
+    const taskId = parseInt(req.params.id);
+    const { approvalNotes } = req.body;
+    
+    const taskIndex = data.tasks.findIndex(t => t.id === taskId);
+    if (taskIndex === -1) {
+        return res.status(404).json({ error: 'タスクが見つかりません' });
+    }
+    
+    if (data.tasks[taskIndex].status !== 'pending_approval') {
+        return res.status(400).json({ error: '承認待ち状態ではありません' });
+    }
+    
+    data.tasks[taskIndex] = {
+        ...data.tasks[taskIndex],
+        status: 'approved',
+        approvalNotes: approvalNotes || '',
+        approvedAt: new Date().toISOString()
+    };
+    
+    if (saveData(data)) {
+        res.json({ success: true, task: data.tasks[taskIndex] });
+    } else {
+        res.status(500).json({ error: 'データの保存に失敗しました' });
+    }
+});
+
+app.post('/api/tasks/:id/reject', (req, res) => {
+    const data = loadData();
+    const taskId = parseInt(req.params.id);
+    const { rejectionReason } = req.body;
+    
+    const taskIndex = data.tasks.findIndex(t => t.id === taskId);
+    if (taskIndex === -1) {
+        return res.status(404).json({ error: 'タスクが見つかりません' });
+    }
+    
+    if (data.tasks[taskIndex].status !== 'pending_approval') {
+        return res.status(400).json({ error: '承認待ち状態ではありません' });
+    }
+    
+    data.tasks[taskIndex] = {
+        ...data.tasks[taskIndex],
+        status: 'rejected',
+        approvalNotes: rejectionReason || '',
+        approvedAt: null,
+        submittedForApprovalAt: null
+    };
+    
+    if (saveData(data)) {
+        res.json({ success: true, task: data.tasks[taskIndex] });
+    } else {
+        res.status(500).json({ error: 'データの保存に失敗しました' });
+    }
+});
+
+// CSV出力エンドポイント
+app.get('/api/tasks/export/csv', (req, res) => {
+    const data = loadData();
+    
+    // CSVヘッダー
+    const csvHeader = [
+        'ID', 'プロジェクト名', 'タスク名', '説明', '担当者', '依頼者', '承認者',
+        '開始日', '終了日', '予定工数', '実績工数', 'ステータス', '優先度',
+        '承認書類', '承認コメント', '承認日時', '申請日時'
+    ].join(',');
+    
+    // CSVデータ行
+    const csvRows = data.tasks.map(task => {
+        const project = data.projects.find(p => p.id === task.projectId);
+        const assignee = data.members.find(m => m.id === task.assigneeId);
+        const requester = data.members.find(m => m.id === task.requesterId);
+        const approver = data.members.find(m => m.id === task.approverId);
+        
+        return [
+            task.id,
+            `"${project ? project.name : ''}"`,
+            `"${task.name}"`,
+            `"${task.description}"`,
+            `"${assignee ? assignee.name : ''}"`,
+            `"${requester ? requester.name : ''}"`,
+            `"${approver ? approver.name : ''}"`,
+            task.startDate,
+            task.endDate,
+            task.estimatedHours,
+            task.actualHours,
+            getStatusTextForCSV(task.status),
+            getPriorityTextForCSV(task.priority),
+            `"${task.approvalDocuments || ''}"`,
+            `"${task.approvalNotes || ''}"`,
+            task.approvedAt ? new Date(task.approvedAt).toLocaleDateString('ja-JP') : '',
+            task.submittedForApprovalAt ? new Date(task.submittedForApprovalAt).toLocaleDateString('ja-JP') : ''
+        ].join(',');
+    });
+    
+    const csvContent = [csvHeader, ...csvRows].join('\n');
+    
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="tasks_${new Date().toISOString().split('T')[0]}.csv"`);
+    res.send('\uFEFF' + csvContent); // BOM付きでExcelで正常に表示
+});
+
+function getStatusTextForCSV(status) {
+    const statusMap = {
+        pending: '未着手',
+        in_progress: '進行中',
+        completed: '完了',
+        pending_approval: '承認待ち',
+        approved: '承認済み',
+        rejected: '却下'
+    };
+    return statusMap[status] || status;
+}
+
+function getPriorityTextForCSV(priority) {
+    const priorityMap = {
+        low: '低',
+        medium: '中',
+        high: '高'
+    };
+    return priorityMap[priority] || priority;
+}
 
 // ルーティンジョブ管理
 app.get('/api/routine-jobs', (req, res) => {

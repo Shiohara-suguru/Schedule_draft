@@ -137,6 +137,18 @@ function setupEventListeners() {
     document.getElementById('add-routine-btn').addEventListener('click', () => openRoutineModal());
     elements.routineForm.addEventListener('submit', handleRoutineSubmit);
     
+    // 承認関連
+    const submitApprovalForm = document.getElementById('submit-approval-form');
+    const approvalForm = document.getElementById('approval-form');
+    const exportCsvBtn = document.getElementById('export-csv-btn');
+    
+    if (submitApprovalForm) {
+        submitApprovalForm.addEventListener('submit', handleSubmitApprovalSubmit);
+    }
+    if (exportCsvBtn) {
+        exportCsvBtn.addEventListener('click', exportTasksToCSV);
+    }
+    
     // ガントチャート関連
     document.getElementById('gantt-refresh').addEventListener('click', renderGanttChart);
     
@@ -387,6 +399,8 @@ function updateSelects() {
     
     // メンバーセレクトの更新
     updateSelect('task-assignee', currentData.members, 'name', '担当者を選択');
+    updateSelect('task-requester', currentData.members, 'name', '依頼者を選択');
+    updateSelect('task-approver', currentData.members, 'name', '承認者を選択');
     updateSelect('task-member-filter', currentData.members, 'name', 'すべてのメンバー');
     updateSelect('gantt-member-filter', currentData.members, 'name', 'すべてのメンバー');
     updateSelect('workload-member-filter', currentData.members, 'name', 'すべてのメンバー');
@@ -867,19 +881,39 @@ function updateTasksList() {
     if (priorityFilter) filteredTasks = filteredTasks.filter(t => t.priority === priorityFilter);
     
     if (filteredTasks.length === 0) {
-        tasksBody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 2rem; color: #64748b;">表示するタスクがありません</td></tr>';
+        tasksBody.innerHTML = '<tr><td colspan="11" style="text-align: center; padding: 2rem; color: #64748b;">表示するタスクがありません</td></tr>';
         return;
     }
     
     tasksBody.innerHTML = filteredTasks.map(task => {
         const member = currentData.members.find(m => m.id === task.assigneeId);
+        const requester = currentData.members.find(m => m.id === task.requesterId);
+        const approver = currentData.members.find(m => m.id === task.approverId);
         const project = currentData.projects.find(p => p.id === task.projectId);
+        
+        // 承認関連のアクションボタンを生成
+        let approvalActions = '';
+        if (task.status === 'completed' && task.approverId) {
+            approvalActions = `
+                <button class="btn btn-small btn-primary" onclick="openSubmitApprovalModal(${task.id})" title="承認申請">
+                    <i class="fas fa-paper-plane"></i>
+                </button>
+            `;
+        } else if (task.status === 'pending_approval' && task.approverId) {
+            approvalActions = `
+                <button class="btn btn-small btn-success" onclick="openApprovalModal(${task.id})" title="承認処理">
+                    <i class="fas fa-check-circle"></i>
+                </button>
+            `;
+        }
         
         return `
             <tr>
                 <td>${task.name}</td>
                 <td>${project ? project.name : 'Unknown'}</td>
                 <td>${member ? member.name : 'Unknown'}</td>
+                <td>${requester ? requester.name : '-'}</td>
+                <td>${approver ? approver.name : '-'}</td>
                 <td>${moment(task.startDate).format('YYYY/MM/DD')}</td>
                 <td>${moment(task.endDate).format('YYYY/MM/DD')}</td>
                 <td>${task.estimatedHours}h</td>
@@ -900,6 +934,7 @@ function updateTasksList() {
                     <button class="btn btn-small btn-danger" onclick="deleteTask(${task.id})">
                         <i class="fas fa-trash"></i>
                     </button>
+                    ${approvalActions}
                 </td>
             </tr>
         `;
@@ -1203,6 +1238,9 @@ function openTaskModal(taskId = null) {
             document.getElementById('task-end-date').value = task.endDate;
             document.getElementById('task-priority').value = task.priority;
             document.getElementById('task-status').value = task.status;
+            document.getElementById('task-requester').value = task.requesterId || '';
+            document.getElementById('task-approver').value = task.approverId || '';
+            document.getElementById('task-approval-documents').value = task.approvalDocuments || '';
         }
     } else {
         title.textContent = 'タスク追加';
@@ -1232,7 +1270,10 @@ async function handleTaskSubmit(event) {
         startDate: document.getElementById('task-start-date').value,
         endDate: document.getElementById('task-end-date').value,
         priority: document.getElementById('task-priority').value,
-        status: document.getElementById('task-status').value
+        status: document.getElementById('task-status').value,
+        requesterId: document.getElementById('task-requester').value || null,
+        approverId: document.getElementById('task-approver').value || null,
+        approvalDocuments: document.getElementById('task-approval-documents').value || null
     };
     
     const url = taskId ? `/api/tasks/${taskId}` : '/api/tasks';
@@ -1558,7 +1599,10 @@ function getStatusText(status) {
     const statusMap = {
         pending: '未着手',
         in_progress: '進行中',
-        completed: '完了'
+        completed: '完了',
+        pending_approval: '承認待ち',
+        approved: '承認済み',
+        rejected: '却下'
     };
     return statusMap[status] || status;
 }
@@ -1603,3 +1647,189 @@ window.closeProjectModal = closeProjectModal;
 window.closeTaskModal = closeTaskModal;
 window.closeMemberModal = closeMemberModal;
 window.closeRoutineModal = closeRoutineModal;
+
+// 承認関連の関数をグローバルに公開
+window.openSubmitApprovalModal = openSubmitApprovalModal;
+window.closeSubmitApprovalModal = closeSubmitApprovalModal;
+window.openApprovalModal = openApprovalModal;
+window.closeApprovalModal = closeApprovalModal;
+window.submitApproval = submitApproval;
+
+// 承認申請モーダル
+function openSubmitApprovalModal(taskId) {
+    const task = currentData.tasks.find(t => t.id === taskId);
+    if (!task) return;
+    
+    const modal = document.getElementById('submit-approval-modal');
+    const taskInfo = document.getElementById('submit-approval-task-info');
+    const member = currentData.members.find(m => m.id === task.assigneeId);
+    const project = currentData.projects.find(p => p.id === task.projectId);
+    const approver = currentData.members.find(m => m.id === task.approverId);
+    
+    document.getElementById('submit-approval-task-id').value = taskId;
+    document.getElementById('submit-approval-documents').value = task.approvalDocuments || '';
+    document.getElementById('submit-approval-notes').value = '';
+    
+    taskInfo.innerHTML = `
+        <div class="task-info">
+            <h4><i class="fas fa-tasks"></i> ${task.name}</h4>
+            <div class="task-details">
+                <p><strong>プロジェクト:</strong> ${project ? project.name : 'Unknown'}</p>
+                <p><strong>担当者:</strong> ${member ? member.name : 'Unknown'}</p>
+                <p><strong>承認者:</strong> ${approver ? approver.name : 'Unknown'}</p>
+                <p><strong>期間:</strong> ${moment(task.startDate).format('YYYY/MM/DD')} - ${moment(task.endDate).format('YYYY/MM/DD')}</p>
+            </div>
+        </div>
+    `;
+    
+    modal.classList.add('show');
+}
+
+function closeSubmitApprovalModal() {
+    const modal = document.getElementById('submit-approval-modal');
+    modal.classList.remove('show');
+}
+
+async function handleSubmitApprovalSubmit(event) {
+    event.preventDefault();
+    
+    const taskId = document.getElementById('submit-approval-task-id').value;
+    const approvalDocuments = document.getElementById('submit-approval-documents').value;
+    const notes = document.getElementById('submit-approval-notes').value;
+    
+    showLoading(true);
+    try {
+        const response = await fetch(`/api/tasks/${taskId}/submit-approval`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                approvalDocuments: approvalDocuments,
+                notes: notes
+            })
+        });
+        
+        if (response.ok) {
+            showNotification('承認申請を送信しました', 'success');
+            closeSubmitApprovalModal();
+            await loadAllData();
+            updateTasksList();
+            updateDashboard();
+        } else {
+            const error = await response.json();
+            throw new Error(error.error || '承認申請の送信に失敗しました');
+        }
+    } catch (error) {
+        console.error('承認申請エラー:', error);
+        showNotification('承認申請の送信に失敗しました', 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+// 承認処理モーダル
+function openApprovalModal(taskId) {
+    const task = currentData.tasks.find(t => t.id === taskId);
+    if (!task) return;
+    
+    const modal = document.getElementById('approval-modal');
+    const taskInfo = document.getElementById('approval-task-info');
+    const member = currentData.members.find(m => m.id === task.assigneeId);
+    const requester = currentData.members.find(m => m.id === task.requesterId);
+    const project = currentData.projects.find(p => p.id === task.projectId);
+    
+    document.getElementById('approval-task-id').value = taskId;
+    document.getElementById('approval-notes').value = '';
+    
+    let documentsLink = '';
+    if (task.approvalDocuments) {
+        documentsLink = `<p><strong>資料リンク:</strong> <a href="${task.approvalDocuments}" target="_blank">資料を開く <i class="fas fa-external-link-alt"></i></a></p>`;
+    }
+    
+    taskInfo.innerHTML = `
+        <div class="task-info">
+            <h4><i class="fas fa-tasks"></i> ${task.name}</h4>
+            <div class="task-details">
+                <p><strong>プロジェクト:</strong> ${project ? project.name : 'Unknown'}</p>
+                <p><strong>担当者:</strong> ${member ? member.name : 'Unknown'}</p>
+                <p><strong>依頼者:</strong> ${requester ? requester.name : 'Unknown'}</p>
+                <p><strong>期間:</strong> ${moment(task.startDate).format('YYYY/MM/DD')} - ${moment(task.endDate).format('YYYY/MM/DD')}</p>
+                ${documentsLink}
+                ${task.approvalNotes ? `<p><strong>申請コメント:</strong> ${task.approvalNotes}</p>` : ''}
+            </div>
+        </div>
+    `;
+    
+    modal.classList.add('show');
+}
+
+function closeApprovalModal() {
+    const modal = document.getElementById('approval-modal');
+    modal.classList.remove('show');
+}
+
+async function submitApproval(action) {
+    const taskId = document.getElementById('approval-task-id').value;
+    const notes = document.getElementById('approval-notes').value;
+    
+    const confirmMessage = action === 'approve' 
+        ? 'このタスクを承認しますか？'
+        : 'このタスクを却下しますか？';
+        
+    if (!confirm(confirmMessage)) return;
+    
+    showLoading(true);
+    try {
+        const response = await fetch(`/api/tasks/${taskId}/${action}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ approvalNotes: notes })
+        });
+        
+        if (response.ok) {
+            const message = action === 'approve' ? 'タスクを承認しました' : 'タスクを却下しました';
+            showNotification(message, 'success');
+            closeApprovalModal();
+            await loadAllData();
+            updateTasksList();
+            updateDashboard();
+        } else {
+            const error = await response.json();
+            throw new Error(error.error || '承認処理に失敗しました');
+        }
+    } catch (error) {
+        console.error('承認処理エラー:', error);
+        showNotification('承認処理に失敗しました', 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+// CSV出力機能
+async function exportTasksToCSV() {
+    try {
+        showLoading(true);
+        const response = await fetch('/api/tasks/export/csv');
+        
+        if (response.ok) {
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = `タスク一覧_${moment().format('YYYY-MM-DD')}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+            showNotification('CSVファイルをダウンロードしました', 'success');
+        } else {
+            throw new Error('CSV出力に失敗しました');
+        }
+    } catch (error) {
+        console.error('CSV出力エラー:', error);
+        showNotification('CSV出力に失敗しました', 'error');
+    } finally {
+        showLoading(false);
+    }
+}
