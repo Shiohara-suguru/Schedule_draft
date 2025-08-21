@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ルーティンジョブ工数管理システム</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="app">
+        <!-- ヘッダー -->
+        <header class="header">
+            <div class="header-content">
+                <h1><i class="fas fa-clock"></i> ルーティンジョブ工数管理</h1>
+                <nav class="nav-tabs">
+                    <button class="tab-btn active" data-tab="entry">工数入力</button>
+                    <button class="tab-btn" data-tab="list">記録一覧</button>
+                    <button class="tab-btn" data-tab="stats">統計</button>
+                    <button class="tab-btn" data-tab="manage">管理</button>
+                </nav>
+            </div>
+        </header>
+
+        <!-- メインコンテンツ -->
+        <main class="main">
+            <!-- 工数入力タブ -->
+            <div id="entry-tab" class="tab-content active">
+                <div class="container">
+                    <h2><i class="fas fa-plus-circle"></i> 工数記録の追加</h2>
+                    <div class="form-card">
+                        <form id="work-entry-form">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="member-select">担当者 <span class="required">*</span></label>
+                                    <select id="member-select" required>
+                                        <option value="">担当者を選択してください</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="job-select">ルーティンジョブ <span class="required">*</span></label>
+                                    <select id="job-select" required>
+                                        <option value="">ジョブを選択してください</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="hours-input">工数（時間） <span class="required">*</span></label>
+                                    <input type="number" id="hours-input" step="0.5" min="0" max="24" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="date-input">日付 <span class="required">*</span></label>
+                                    <input type="date" id="date-input" required>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="notes-input">備考</label>
+                                <textarea id="notes-input" rows="3" placeholder="作業内容や特記事項があれば記入してください"></textarea>
+                            </div>
+                            
+                            <div class="form-actions">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-save"></i> 記録を追加
+                                </button>
+                                <button type="button" id="clear-form" class="btn btn-secondary">
+                                    <i class="fas fa-eraser"></i> クリア
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 記録一覧タブ -->
+            <div id="list-tab" class="tab-content">
+                <div class="container">
+                    <div class="list-header">
+                        <h2><i class="fas fa-list"></i> 工数記録一覧</h2>
+                        <div class="filter-controls">
+                            <input type="date" id="filter-start-date" placeholder="開始日">
+                            <input type="date" id="filter-end-date" placeholder="終了日">
+                            <select id="filter-member">
+                                <option value="">全担当者</option>
+                            </select>
+                            <select id="filter-job">
+                                <option value="">全ジョブ</option>
+                            </select>
+                            <button id="apply-filter" class="btn btn-primary">
+                                <i class="fas fa-filter"></i> フィルター
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="table-container">
+                        <table id="work-entries-table" class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>日付</th>
+                                    <th>担当者</th>
+                                    <th>ジョブ名</th>
+                                    <th>工数</th>
+                                    <th>備考</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="work-entries-body">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 統計タブ -->
+            <div id="stats-tab" class="tab-content">
+                <div class="container">
+                    <h2><i class="fas fa-chart-bar"></i> 工数統計</h2>
+                    
+                    <div class="stats-controls">
+                        <input type="date" id="stats-start-date">
+                        <input type="date" id="stats-end-date">
+                        <button id="update-stats" class="btn btn-primary">
+                            <i class="fas fa-sync"></i> 統計更新
+                        </button>
+                    </div>
+                    
+                    <div class="stats-grid">
+                        <!-- 全体統計 -->
+                        <div class="stats-card">
+                            <h3><i class="fas fa-clock"></i> 全体統計</h3>
+                            <div id="total-stats">
+                                <div class="stat-item">
+                                    <span class="stat-label">総工数：</span>
+                                    <span class="stat-value" id="total-hours">0</span> 時間
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">総記録数：</span>
+                                    <span class="stat-value" id="total-entries">0</span> 件
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 担当者別統計 -->
+                        <div class="stats-card">
+                            <h3><i class="fas fa-users"></i> 担当者別統計</h3>
+                            <div id="member-stats"></div>
+                        </div>
+                        
+                        <!-- ジョブ別統計 -->
+                        <div class="stats-card">
+                            <h3><i class="fas fa-tasks"></i> ジョブ別統計</h3>
+                            <div id="job-stats"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 管理タブ -->
+            <div id="manage-tab" class="tab-content">
+                <div class="container">
+                    <h2><i class="fas fa-cogs"></i> データ管理</h2>
+                    
+                    <div class="manage-grid">
+                        <!-- 担当者管理 -->
+                        <div class="manage-card">
+                            <h3><i class="fas fa-user-plus"></i> 担当者追加</h3>
+                            <form id="add-member-form">
+                                <div class="form-group">
+                                    <label for="member-name">名前</label>
+                                    <input type="text" id="member-name" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="member-department">部署</label>
+                                    <input type="text" id="member-department" required>
+                                </div>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-plus"></i> 担当者追加
+                                </button>
+                            </form>
+                        </div>
+                        
+                        <!-- ジョブ管理 -->
+                        <div class="manage-card">
+                            <h3><i class="fas fa-briefcase"></i> ジョブ追加</h3>
+                            <form id="add-job-form">
+                                <div class="form-group">
+                                    <label for="job-name">ジョブ名</label>
+                                    <input type="text" id="job-name" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="job-description">説明</label>
+                                    <textarea id="job-description" rows="2"></textarea>
+                                </div>
+                                <div class="form-group">
+                                    <label for="job-category">カテゴリ</label>
+                                    <input type="text" id="job-category" value="その他">
+                                </div>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-plus"></i> ジョブ追加
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 編集モーダル -->
+    <div id="edit-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-edit"></i> 工数記録の編集</h3>
+                <button class="modal-close" onclick="closeEditModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="edit-form">
+                    <input type="hidden" id="edit-entry-id">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="edit-member-select">担当者</label>
+                            <select id="edit-member-select" required>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="edit-job-select">ルーティンジョブ</label>
+                            <select id="edit-job-select" required>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="edit-hours-input">工数（時間）</label>
+                            <input type="number" id="edit-hours-input" step="0.5" min="0" max="24" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="edit-date-input">日付</label>
+                            <input type="date" id="edit-date-input" required>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-notes-input">備考</label>
+                        <textarea id="edit-notes-input" rows="3"></textarea>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> 更新
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="closeEditModal()">
+                            <i class="fas fa-times"></i> キャンセル
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ローディング表示 -->
+    <div id="loading" class="loading">
+        <div class="loading-spinner"></div>
+    </div>
+
+    <!-- 通知表示 -->
+    <div id="notification" class="notification"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>
