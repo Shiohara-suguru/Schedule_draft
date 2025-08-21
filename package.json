@@ -1,7 +1,7 @@
 {
-  "name": "routine-job-tracker",
+  "name": "project-management-system",
   "version": "1.0.0",
-  "description": "各担当者のルーティンジョブ工数管理Webアプリケーション",
+  "description": "プロジェクト管理・業務負荷管理・ルーティンジョブ工数管理システム",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -11,17 +11,20 @@
     "body-parser": "^1.20.2",
     "cors": "^2.8.5",
     "express": "^4.18.2",
+    "moment": "^2.29.4",
     "pm2": "^6.0.8"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
   },
   "keywords": [
+    "project",
+    "management",
+    "gantt",
+    "workload",
+    "calendar",
     "routine",
-    "job",
-    "tracker",
-    "work",
-    "hours"
+    "task"
   ],
   "author": "AI Developer",
   "license": "MIT"

@@ -1,11 +1,13 @@
 // グローバル変数
 let currentData = {
     members: [],
-    routineJobs: [],
-    workEntries: []
+    projects: [],
+    tasks: [],
+    routineJobs: []
 };
 
-let currentEditingId = null;
+let calendar = null;
+let charts = {};
 
 // DOM要素の取得
 const elements = {
@@ -13,51 +15,23 @@ const elements = {
     tabBtns: document.querySelectorAll('.tab-btn'),
     tabContents: document.querySelectorAll('.tab-content'),
     
-    // フォーム関連
-    workEntryForm: document.getElementById('work-entry-form'),
-    memberSelect: document.getElementById('member-select'),
-    jobSelect: document.getElementById('job-select'),
-    hoursInput: document.getElementById('hours-input'),
-    dateInput: document.getElementById('date-input'),
-    notesInput: document.getElementById('notes-input'),
-    clearFormBtn: document.getElementById('clear-form'),
-    
-    // 一覧関連
-    workEntriesTable: document.getElementById('work-entries-table'),
-    workEntriesBody: document.getElementById('work-entries-body'),
-    filterStartDate: document.getElementById('filter-start-date'),
-    filterEndDate: document.getElementById('filter-end-date'),
-    filterMember: document.getElementById('filter-member'),
-    filterJob: document.getElementById('filter-job'),
-    applyFilterBtn: document.getElementById('apply-filter'),
-    
-    // 統計関連
-    statsStartDate: document.getElementById('stats-start-date'),
-    statsEndDate: document.getElementById('stats-end-date'),
-    updateStatsBtn: document.getElementById('update-stats'),
+    // KPI要素
+    totalProjects: document.getElementById('total-projects'),
+    totalTasks: document.getElementById('total-tasks'),
     totalHours: document.getElementById('total-hours'),
-    totalEntries: document.getElementById('total-entries'),
-    memberStats: document.getElementById('member-stats'),
-    jobStats: document.getElementById('job-stats'),
-    
-    // 管理関連
-    addMemberForm: document.getElementById('add-member-form'),
-    memberName: document.getElementById('member-name'),
-    memberDepartment: document.getElementById('member-department'),
-    addJobForm: document.getElementById('add-job-form'),
-    jobName: document.getElementById('job-name'),
-    jobDescription: document.getElementById('job-description'),
-    jobCategory: document.getElementById('job-category'),
+    totalMembers: document.getElementById('total-members'),
     
     // モーダル関連
-    editModal: document.getElementById('edit-modal'),
-    editForm: document.getElementById('edit-form'),
-    editEntryId: document.getElementById('edit-entry-id'),
-    editMemberSelect: document.getElementById('edit-member-select'),
-    editJobSelect: document.getElementById('edit-job-select'),
-    editHoursInput: document.getElementById('edit-hours-input'),
-    editDateInput: document.getElementById('edit-date-input'),
-    editNotesInput: document.getElementById('edit-notes-input'),
+    projectModal: document.getElementById('project-modal'),
+    taskModal: document.getElementById('task-modal'),
+    memberModal: document.getElementById('member-modal'),
+    routineModal: document.getElementById('routine-modal'),
+    
+    // フォーム関連
+    projectForm: document.getElementById('project-form'),
+    taskForm: document.getElementById('task-form'),
+    memberForm: document.getElementById('member-form'),
+    routineForm: document.getElementById('routine-form'),
     
     // UI関連
     loading: document.getElementById('loading'),
@@ -70,25 +44,23 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 async function initializeApp() {
-    // 今日の日付を設定
-    const today = new Date().toISOString().split('T')[0];
-    elements.dateInput.value = today;
+    console.log('プロジェクト管理システムを初期化中...');
     
     // タブ切り替えの設定
     setupTabSwitching();
     
-    // フォームイベントの設定
-    setupFormEvents();
+    // イベントリスナーの設定
+    setupEventListeners();
     
     // 初期データの読み込み
     await loadAllData();
     
     // UI要素の更新
+    updateDashboard();
     updateSelects();
-    updateWorkEntriesList();
-    updateStats();
+    initializeCalendar();
     
-    console.log('アプリケーションの初期化が完了しました');
+    console.log('プロジェクト管理システムの初期化が完了しました');
 }
 
 // タブ切り替えの設定
@@ -120,33 +92,97 @@ function switchTab(tabName) {
     });
     
     // タブ固有の初期化処理
-    if (tabName === 'stats') {
-        updateStats();
-    } else if (tabName === 'list') {
-        updateWorkEntriesList();
+    switch (tabName) {
+        case 'dashboard':
+            updateDashboard();
+            break;
+        case 'gantt':
+            renderGanttChart();
+            break;
+        case 'workload':
+            updateWorkloadView();
+            break;
+        case 'calendar':
+            if (calendar) calendar.render();
+            break;
+        case 'tasks':
+            updateTasksList();
+            break;
+        case 'routine':
+            updateRoutineJobsList();
+            break;
+        case 'manage':
+            updateManagementLists();
+            break;
     }
 }
 
-// フォームイベントの設定
-function setupFormEvents() {
-    // 工数記録フォーム
-    elements.workEntryForm.addEventListener('submit', handleWorkEntrySubmit);
-    elements.clearFormBtn.addEventListener('click', clearWorkEntryForm);
+// イベントリスナーの設定
+function setupEventListeners() {
+    // プロジェクト関連
+    document.getElementById('add-project-btn').addEventListener('click', () => openProjectModal());
+    elements.projectForm.addEventListener('submit', handleProjectSubmit);
     
-    // 担当者追加フォーム
-    elements.addMemberForm.addEventListener('submit', handleAddMemberSubmit);
+    // タスク関連
+    document.getElementById('add-task-btn').addEventListener('click', () => openTaskModal());
+    elements.taskForm.addEventListener('submit', handleTaskSubmit);
     
-    // ジョブ追加フォーム
-    elements.addJobForm.addEventListener('submit', handleAddJobSubmit);
+    // メンバー関連
+    document.getElementById('add-member-btn').addEventListener('click', () => openMemberModal());
+    elements.memberForm.addEventListener('submit', handleMemberSubmit);
     
-    // 編集フォーム
-    elements.editForm.addEventListener('submit', handleEditSubmit);
+    // ルーティンジョブ関連
+    document.getElementById('add-routine-btn').addEventListener('click', () => openRoutineModal());
+    elements.routineForm.addEventListener('submit', handleRoutineSubmit);
     
-    // フィルター適用
-    elements.applyFilterBtn.addEventListener('click', applyFilters);
+    // ガントチャート関連
+    document.getElementById('gantt-refresh').addEventListener('click', renderGanttChart);
     
-    // 統計更新
-    elements.updateStatsBtn.addEventListener('click', updateStats);
+    // 業務負荷関連
+    document.getElementById('workload-update').addEventListener('click', updateWorkloadView);
+    
+    // フィルター関連
+    setupFilterListeners();
+    
+    // 日付の初期設定
+    setDefaultDates();
+}
+
+function setupFilterListeners() {
+    // タスクフィルター
+    ['task-project-filter', 'task-status-filter', 'task-member-filter', 'task-priority-filter'].forEach(id => {
+        const element = document.getElementById(id);
+        if (element) {
+            element.addEventListener('change', updateTasksList);
+        }
+    });
+    
+    // ガントチャートフィルター
+    ['gantt-project-filter', 'gantt-member-filter'].forEach(id => {
+        const element = document.getElementById(id);
+        if (element) {
+            element.addEventListener('change', renderGanttChart);
+        }
+    });
+    
+    // 業務負荷フィルター
+    const workloadMemberFilter = document.getElementById('workload-member-filter');
+    if (workloadMemberFilter) {
+        workloadMemberFilter.addEventListener('change', updateWorkloadView);
+    }
+}
+
+function setDefaultDates() {
+    const today = new Date();
+    const oneWeekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const oneMonthLater = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+    
+    // 業務負荷用日付
+    const workloadStartDate = document.getElementById('workload-start-date');
+    const workloadEndDate = document.getElementById('workload-end-date');
+    
+    if (workloadStartDate) workloadStartDate.value = oneWeekAgo.toISOString().split('T')[0];
+    if (workloadEndDate) workloadEndDate.value = oneMonthLater.toISOString().split('T')[0];
 }
 
 // データ読み込み
@@ -156,6 +192,7 @@ async function loadAllData() {
         const response = await fetch('/api/data');
         if (response.ok) {
             currentData = await response.json();
+            console.log('データ読み込み完了:', currentData);
         } else {
             throw new Error('データの読み込みに失敗しました');
         }
@@ -167,23 +204,170 @@ async function loadAllData() {
     }
 }
 
-// セレクト要素の更新
-function updateSelects() {
-    // 担当者セレクト
-    updateSelect(elements.memberSelect, currentData.members, 'name');
-    updateSelect(elements.editMemberSelect, currentData.members, 'name');
-    updateSelect(elements.filterMember, currentData.members, 'name');
+// ダッシュボードの更新
+function updateDashboard() {
+    // KPI更新
+    elements.totalProjects.textContent = currentData.projects.length;
+    elements.totalTasks.textContent = currentData.tasks.length;
+    elements.totalHours.textContent = currentData.tasks.reduce((sum, task) => sum + task.estimatedHours, 0);
+    elements.totalMembers.textContent = currentData.members.length;
     
-    // ジョブセレクト
-    updateSelect(elements.jobSelect, currentData.routineJobs, 'name');
-    updateSelect(elements.editJobSelect, currentData.routineJobs, 'name');
-    updateSelect(elements.filterJob, currentData.routineJobs, 'name');
+    // チャート更新
+    updateDashboardCharts();
+    updateRecentActivities();
 }
 
-function updateSelect(selectElement, data, displayField) {
+function updateDashboardCharts() {
+    // プロジェクト状況チャート
+    const projectStatusCtx = document.getElementById('project-status-chart');
+    if (projectStatusCtx) {
+        const statusCounts = {
+            pending: currentData.projects.filter(p => p.status === 'pending').length,
+            in_progress: currentData.projects.filter(p => p.status === 'in_progress').length,
+            completed: currentData.projects.filter(p => p.status === 'completed').length
+        };
+        
+        if (charts.projectStatus) charts.projectStatus.destroy();
+        
+        charts.projectStatus = new Chart(projectStatusCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['未着手', '進行中', '完了'],
+                datasets: [{
+                    data: [statusCounts.pending, statusCounts.in_progress, statusCounts.completed],
+                    backgroundColor: ['#f59e0b', '#3b82f6', '#10b981'],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }
+        });
+    }
+    
+    // タスク進捗チャート
+    const taskProgressCtx = document.getElementById('task-progress-chart');
+    if (taskProgressCtx) {
+        const taskStatusCounts = {
+            pending: currentData.tasks.filter(t => t.status === 'pending').length,
+            in_progress: currentData.tasks.filter(t => t.status === 'in_progress').length,
+            completed: currentData.tasks.filter(t => t.status === 'completed').length
+        };
+        
+        if (charts.taskProgress) charts.taskProgress.destroy();
+        
+        charts.taskProgress = new Chart(taskProgressCtx, {
+            type: 'bar',
+            data: {
+                labels: ['未着手', '進行中', '完了'],
+                datasets: [{
+                    label: 'タスク数',
+                    data: [taskStatusCounts.pending, taskStatusCounts.in_progress, taskStatusCounts.completed],
+                    backgroundColor: ['#f59e0b', '#3b82f6', '#10b981'],
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            stepSize: 1
+                        }
+                    }
+                }
+            }
+        });
+    }
+}
+
+function updateRecentActivities() {
+    const activitiesContainer = document.getElementById('recent-activities');
+    if (!activitiesContainer) return;
+    
+    const activities = [];
+    
+    // 最近のタスクを追加
+    currentData.tasks.slice(-5).forEach(task => {
+        const member = currentData.members.find(m => m.id === task.assigneeId);
+        const project = currentData.projects.find(p => p.id === task.projectId);
+        
+        activities.push({
+            icon: 'fas fa-tasks',
+            color: '#3b82f6',
+            title: `タスク「${task.name}」が作成されました`,
+            detail: `担当者: ${member ? member.name : 'Unknown'}, プロジェクト: ${project ? project.name : 'Unknown'}`,
+            time: '最近'
+        });
+    });
+    
+    // 最近のプロジェクトを追加
+    currentData.projects.slice(-3).forEach(project => {
+        activities.push({
+            icon: 'fas fa-project-diagram',
+            color: project.color,
+            title: `プロジェクト「${project.name}」が作成されました`,
+            detail: `期間: ${project.startDate} - ${project.endDate}`,
+            time: '最近'
+        });
+    });
+    
+    activitiesContainer.innerHTML = activities.length === 0 
+        ? '<p style="text-align: center; color: #64748b; padding: 2rem;">最近のアクティビティはありません</p>'
+        : activities.map(activity => `
+            <div class="activity-item">
+                <div class="activity-icon" style="background: ${activity.color}">
+                    <i class="${activity.icon}"></i>
+                </div>
+                <div class="activity-content">
+                    <div class="activity-title">${activity.title}</div>
+                    <div class="activity-detail">${activity.detail}</div>
+                    <div class="activity-time">${activity.time}</div>
+                </div>
+            </div>
+        `).join('');
+}
+
+// セレクト要素の更新
+function updateSelects() {
+    // プロジェクトセレクトの更新
+    updateSelect('task-project', currentData.projects, 'name', 'プロジェクトを選択');
+    updateSelect('task-project-filter', currentData.projects, 'name', 'すべてのプロジェクト');
+    updateSelect('gantt-project-filter', currentData.projects, 'name', 'すべてのプロジェクト');
+    
+    // メンバーセレクトの更新
+    updateSelect('task-assignee', currentData.members, 'name', '担当者を選択');
+    updateSelect('task-member-filter', currentData.members, 'name', 'すべてのメンバー');
+    updateSelect('gantt-member-filter', currentData.members, 'name', 'すべてのメンバー');
+    updateSelect('workload-member-filter', currentData.members, 'name', 'すべてのメンバー');
+    updateSelect('routine-assignee', currentData.members, 'name', '担当者を選択');
+}
+
+function updateSelect(selectId, data, displayField, placeholder) {
+    const selectElement = document.getElementById(selectId);
+    if (!selectElement) return;
+    
     // 既存のオプション（最初の選択肢以外）を削除
     while (selectElement.children.length > 1) {
         selectElement.removeChild(selectElement.lastChild);
+    }
+    
+    // プレースホルダーを更新
+    if (selectElement.firstChild) {
+        selectElement.firstChild.textContent = placeholder;
     }
     
     // 新しいオプションを追加
@@ -198,380 +382,1066 @@ function updateSelect(selectElement, data, displayField) {
     });
 }
 
-// 工数記録フォームの送信処理
-async function handleWorkEntrySubmit(event) {
-    event.preventDefault();
+// ガントチャートの描画
+function renderGanttChart() {
+    const ganttContainer = document.getElementById('gantt-chart');
+    if (!ganttContainer) return;
     
-    const formData = {
-        memberId: elements.memberSelect.value,
-        jobId: elements.jobSelect.value,
-        hours: elements.hoursInput.value,
-        date: elements.dateInput.value,
-        notes: elements.notesInput.value
-    };
+    const projectFilter = document.getElementById('gantt-project-filter').value;
+    const memberFilter = document.getElementById('gantt-member-filter').value;
     
-    // バリデーション
-    if (!formData.memberId || !formData.jobId || !formData.hours || !formData.date) {
-        showNotification('必須項目を入力してください', 'error');
+    let filteredTasks = currentData.tasks;
+    
+    if (projectFilter) {
+        filteredTasks = filteredTasks.filter(task => task.projectId == projectFilter);
+    }
+    
+    if (memberFilter) {
+        filteredTasks = filteredTasks.filter(task => task.assigneeId == memberFilter);
+    }
+    
+    if (filteredTasks.length === 0) {
+        ganttContainer.innerHTML = '<p style="text-align: center; padding: 2rem; color: #64748b;">表示するタスクがありません</p>';
+        return;
+    }
+    
+    // 日付範囲の計算
+    const startDates = filteredTasks.map(task => new Date(task.startDate));
+    const endDates = filteredTasks.map(task => new Date(task.endDate));
+    const minDate = new Date(Math.min(...startDates));
+    const maxDate = new Date(Math.max(...endDates));
+    
+    // 日付配列の生成
+    const dateRange = [];
+    for (let d = new Date(minDate); d <= maxDate; d.setDate(d.getDate() + 1)) {
+        dateRange.push(new Date(d));
+    }
+    
+    // ガントチャートHTML生成
+    const ganttHTML = `
+        <div class="gantt-timeline">
+            <div class="gantt-timeline-header">タスク</div>
+            <div class="gantt-date-header">
+                ${dateRange.map(date => 
+                    `<div class="gantt-date-cell">${date.getDate()}</div>`
+                ).join('')}
+            </div>
+        </div>
+        <div class="gantt-content">
+            ${filteredTasks.map(task => {
+                const member = currentData.members.find(m => m.id === task.assigneeId);
+                const project = currentData.projects.find(p => p.id === task.projectId);
+                const taskStart = new Date(task.startDate);
+                const taskEnd = new Date(task.endDate);
+                const startOffset = Math.max(0, (taskStart - minDate) / (1000 * 60 * 60 * 24));
+                const duration = (taskEnd - taskStart) / (1000 * 60 * 60 * 24) + 1;
+                
+                return `
+                    <div class="gantt-task-row">
+                        <div class="gantt-task-info">
+                            <div>
+                                <strong>${task.name}</strong><br>
+                                <small>${member ? member.name : 'Unknown'}</small>
+                            </div>
+                        </div>
+                        <div class="gantt-timeline-bars">
+                            <div class="gantt-task-bar" 
+                                 style="left: ${startOffset * 40}px; 
+                                        width: ${duration * 40}px; 
+                                        background: ${member ? member.color : '#6b7280'}">
+                                ${task.name}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('')}
+        </div>
+    `;
+    
+    ganttContainer.innerHTML = ganttHTML;
+}
+
+// 業務負荷ビューの更新
+async function updateWorkloadView() {
+    const startDate = document.getElementById('workload-start-date').value;
+    const endDate = document.getElementById('workload-end-date').value;
+    const memberFilter = document.getElementById('workload-member-filter').value;
+    
+    if (!startDate || !endDate) {
+        showNotification('開始日と終了日を選択してください', 'warning');
         return;
     }
     
     showLoading(true);
     try {
-        const response = await fetch('/api/work-entries', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(formData)
-        });
-        
-        if (response.ok) {
-            const result = await response.json();
-            showNotification('工数記録を追加しました', 'success');
-            clearWorkEntryForm();
-            await loadAllData();
-            updateWorkEntriesList();
-        } else {
-            throw new Error('工数記録の追加に失敗しました');
-        }
-    } catch (error) {
-        console.error('工数記録追加エラー:', error);
-        showNotification('工数記録の追加に失敗しました', 'error');
-    } finally {
-        showLoading(false);
-    }
-}
-
-// 工数記録フォームのクリア
-function clearWorkEntryForm() {
-    elements.memberSelect.value = '';
-    elements.jobSelect.value = '';
-    elements.hoursInput.value = '';
-    elements.dateInput.value = new Date().toISOString().split('T')[0];
-    elements.notesInput.value = '';
-}
-
-// 工数記録一覧の更新
-function updateWorkEntriesList(filteredEntries = null) {
-    const entries = filteredEntries || currentData.workEntries;
-    const tbody = elements.workEntriesBody;
-    
-    // テーブルの内容をクリア
-    tbody.innerHTML = '';
-    
-    if (entries.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 2rem; color: #64748b;">データがありません</td></tr>';
-        return;
-    }
-    
-    // エントリーを日付の降順でソート
-    const sortedEntries = [...entries].sort((a, b) => new Date(b.date) - new Date(a.date));
-    
-    sortedEntries.forEach(entry => {
-        const member = currentData.members.find(m => m.id === entry.memberId);
-        const job = currentData.routineJobs.find(j => j.id === entry.jobId);
-        
-        const row = document.createElement('tr');
-        row.innerHTML = `
-            <td>${formatDate(entry.date)}</td>
-            <td>${member ? member.name : '不明'}</td>
-            <td>${job ? job.name : '不明'}</td>
-            <td>${entry.hours}時間</td>
-            <td>${entry.notes || '-'}</td>
-            <td>
-                <button class="btn btn-small btn-secondary" onclick="editWorkEntry(${entry.id})">
-                    <i class="fas fa-edit"></i> 編集
-                </button>
-                <button class="btn btn-small btn-danger" onclick="deleteWorkEntry(${entry.id})">
-                    <i class="fas fa-trash"></i> 削除
-                </button>
-            </td>
-        `;
-        tbody.appendChild(row);
-    });
-}
-
-// フィルターの適用
-function applyFilters() {
-    let filteredEntries = [...currentData.workEntries];
-    
-    // 日付フィルター
-    const startDate = elements.filterStartDate.value;
-    const endDate = elements.filterEndDate.value;
-    
-    if (startDate) {
-        filteredEntries = filteredEntries.filter(entry => entry.date >= startDate);
-    }
-    
-    if (endDate) {
-        filteredEntries = filteredEntries.filter(entry => entry.date <= endDate);
-    }
-    
-    // 担当者フィルター
-    const memberId = elements.filterMember.value;
-    if (memberId) {
-        filteredEntries = filteredEntries.filter(entry => entry.memberId === parseInt(memberId));
-    }
-    
-    // ジョブフィルター
-    const jobId = elements.filterJob.value;
-    if (jobId) {
-        filteredEntries = filteredEntries.filter(entry => entry.jobId === parseInt(jobId));
-    }
-    
-    updateWorkEntriesList(filteredEntries);
-}
-
-// 工数記録の編集
-function editWorkEntry(entryId) {
-    const entry = currentData.workEntries.find(e => e.id === entryId);
-    if (!entry) return;
-    
-    currentEditingId = entryId;
-    
-    // モーダルにデータを設定
-    elements.editEntryId.value = entryId;
-    elements.editMemberSelect.value = entry.memberId;
-    elements.editJobSelect.value = entry.jobId;
-    elements.editHoursInput.value = entry.hours;
-    elements.editDateInput.value = entry.date;
-    elements.editNotesInput.value = entry.notes || '';
-    
-    // モーダルを表示
-    elements.editModal.classList.add('show');
-}
-
-// 編集フォームの送信処理
-async function handleEditSubmit(event) {
-    event.preventDefault();
-    
-    const entryId = elements.editEntryId.value;
-    const formData = {
-        memberId: elements.editMemberSelect.value,
-        jobId: elements.editJobSelect.value,
-        hours: elements.editHoursInput.value,
-        date: elements.editDateInput.value,
-        notes: elements.editNotesInput.value
-    };
-    
-    showLoading(true);
-    try {
-        const response = await fetch(`/api/work-entries/${entryId}`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(formData)
-        });
-        
-        if (response.ok) {
-            showNotification('工数記録を更新しました', 'success');
-            closeEditModal();
-            await loadAllData();
-            updateWorkEntriesList();
-        } else {
-            throw new Error('工数記録の更新に失敗しました');
-        }
-    } catch (error) {
-        console.error('工数記録更新エラー:', error);
-        showNotification('工数記録の更新に失敗しました', 'error');
-    } finally {
-        showLoading(false);
-    }
-}
-
-// 工数記録の削除
-async function deleteWorkEntry(entryId) {
-    if (!confirm('この工数記録を削除しますか？')) return;
-    
-    showLoading(true);
-    try {
-        const response = await fetch(`/api/work-entries/${entryId}`, {
-            method: 'DELETE'
-        });
-        
-        if (response.ok) {
-            showNotification('工数記録を削除しました', 'success');
-            await loadAllData();
-            updateWorkEntriesList();
-        } else {
-            throw new Error('工数記録の削除に失敗しました');
-        }
-    } catch (error) {
-        console.error('工数記録削除エラー:', error);
-        showNotification('工数記録の削除に失敗しました', 'error');
-    } finally {
-        showLoading(false);
-    }
-}
-
-// 担当者追加フォームの送信処理
-async function handleAddMemberSubmit(event) {
-    event.preventDefault();
-    
-    const formData = {
-        name: elements.memberName.value.trim(),
-        department: elements.memberDepartment.value.trim()
-    };
-    
-    if (!formData.name || !formData.department) {
-        showNotification('名前と部署を入力してください', 'error');
-        return;
-    }
-    
-    showLoading(true);
-    try {
-        const response = await fetch('/api/members', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(formData)
-        });
-        
-        if (response.ok) {
-            showNotification('担当者を追加しました', 'success');
-            elements.addMemberForm.reset();
-            await loadAllData();
-            updateSelects();
-        } else {
-            throw new Error('担当者の追加に失敗しました');
-        }
-    } catch (error) {
-        console.error('担当者追加エラー:', error);
-        showNotification('担当者の追加に失敗しました', 'error');
-    } finally {
-        showLoading(false);
-    }
-}
-
-// ジョブ追加フォームの送信処理
-async function handleAddJobSubmit(event) {
-    event.preventDefault();
-    
-    const formData = {
-        name: elements.jobName.value.trim(),
-        description: elements.jobDescription.value.trim(),
-        category: elements.jobCategory.value.trim()
-    };
-    
-    if (!formData.name) {
-        showNotification('ジョブ名を入力してください', 'error');
-        return;
-    }
-    
-    showLoading(true);
-    try {
-        const response = await fetch('/api/routine-jobs', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(formData)
-        });
-        
-        if (response.ok) {
-            showNotification('ルーティンジョブを追加しました', 'success');
-            elements.addJobForm.reset();
-            elements.jobCategory.value = 'その他'; // デフォルト値をリセット
-            await loadAllData();
-            updateSelects();
-        } else {
-            throw new Error('ジョブの追加に失敗しました');
-        }
-    } catch (error) {
-        console.error('ジョブ追加エラー:', error);
-        showNotification('ジョブの追加に失敗しました', 'error');
-    } finally {
-        showLoading(false);
-    }
-}
-
-// 統計の更新
-async function updateStats() {
-    const startDate = elements.statsStartDate.value;
-    const endDate = elements.statsEndDate.value;
-    
-    showLoading(true);
-    try {
-        let url = '/api/stats';
-        const params = new URLSearchParams();
-        
-        if (startDate) params.append('startDate', startDate);
-        if (endDate) params.append('endDate', endDate);
-        
-        if (params.toString()) {
-            url += '?' + params.toString();
-        }
-        
+        const url = memberFilter 
+            ? `/api/workload/${memberFilter}?startDate=${startDate}&endDate=${endDate}`
+            : `/api/workload-all?startDate=${startDate}&endDate=${endDate}`;
+            
         const response = await fetch(url);
         if (response.ok) {
-            const stats = await response.json();
-            displayStats(stats);
+            const workloadData = await response.json();
+            renderWorkloadChart(workloadData, memberFilter);
+            renderWorkloadWarnings(workloadData);
+            renderWorkloadTable(workloadData);
         } else {
-            throw new Error('統計データの取得に失敗しました');
+            throw new Error('業務負荷データの取得に失敗しました');
         }
     } catch (error) {
-        console.error('統計更新エラー:', error);
-        showNotification('統計データの取得に失敗しました', 'error');
+        console.error('業務負荷更新エラー:', error);
+        showNotification('業務負荷データの取得に失敗しました', 'error');
     } finally {
         showLoading(false);
     }
 }
 
-// 統計の表示
-function displayStats(stats) {
-    // 全体統計
-    elements.totalHours.textContent = stats.totalHours.toFixed(1);
-    elements.totalEntries.textContent = stats.totalEntries;
+function renderWorkloadChart(workloadData, memberFilter) {
+    const ctx = document.getElementById('workload-trend-chart');
+    if (!ctx) return;
     
-    // 担当者別統計
-    elements.memberStats.innerHTML = '';
-    stats.memberStats.forEach(memberStat => {
-        const div = document.createElement('div');
-        div.className = 'stat-item';
-        div.innerHTML = `
-            <div>
-                <strong>${memberStat.member.name}</strong><br>
-                <small style="color: #64748b;">${memberStat.member.department}</small>
+    if (charts.workloadTrend) charts.workloadTrend.destroy();
+    
+    if (memberFilter) {
+        // 単一メンバーの場合
+        const labels = workloadData.map(item => moment(item.date).format('MM/DD'));
+        const data = workloadData.map(item => item.workload);
+        const colors = data.map(workload => {
+            if (workload >= 10) return '#ef4444';
+            if (workload >= 8) return '#f59e0b';
+            return '#10b981';
+        });
+        
+        charts.workloadTrend = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: '業務負荷（時間）',
+                    data: data,
+                    borderColor: '#4f46e5',
+                    backgroundColor: 'rgba(79, 70, 229, 0.1)',
+                    fill: true,
+                    tension: 0.3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 12,
+                        ticks: {
+                            callback: function(value) {
+                                return value + 'h';
+                            }
+                        }
+                    }
+                },
+                elements: {
+                    point: {
+                        backgroundColor: function(context) {
+                            const workload = context.raw;
+                            if (workload >= 10) return '#ef4444';
+                            if (workload >= 8) return '#f59e0b';
+                            return '#10b981';
+                        }
+                    }
+                }
+            }
+        });
+    } else {
+        // 全メンバーの場合
+        const datasets = Object.entries(workloadData).map(([memberId, memberData]) => {
+            const member = memberData.member;
+            return {
+                label: member.name,
+                data: memberData.workload.map(item => item.workload),
+                borderColor: member.color,
+                backgroundColor: member.color + '20',
+                tension: 0.3
+            };
+        });
+        
+        const labels = Object.values(workloadData)[0]?.workload.map(item => 
+            moment(item.date).format('MM/DD')
+        ) || [];
+        
+        charts.workloadTrend = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: datasets
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 12,
+                        ticks: {
+                            callback: function(value) {
+                                return value + 'h';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+}
+
+function renderWorkloadWarnings(workloadData) {
+    const warningsContainer = document.getElementById('workload-warnings');
+    if (!warningsContainer) return;
+    
+    const warnings = [];
+    
+    if (Array.isArray(workloadData)) {
+        // 単一メンバーの場合
+        workloadData.forEach(item => {
+            if (item.status !== 'normal') {
+                warnings.push({
+                    date: item.date,
+                    workload: item.workload,
+                    status: item.status,
+                    message: item.message,
+                    member: null
+                });
+            }
+        });
+    } else {
+        // 全メンバーの場合
+        Object.entries(workloadData).forEach(([memberId, memberData]) => {
+            memberData.workload.forEach(item => {
+                if (item.status !== 'normal') {
+                    warnings.push({
+                        date: item.date,
+                        workload: item.workload,
+                        status: item.status,
+                        message: item.message,
+                        member: memberData.member
+                    });
+                }
+            });
+        });
+    }
+    
+    if (warnings.length === 0) {
+        warningsContainer.innerHTML = '<p style="text-align: center; color: #64748b; padding: 2rem;">負荷警告はありません</p>';
+        return;
+    }
+    
+    warningsContainer.innerHTML = warnings.map(warning => `
+        <div class="warning-item ${warning.status}">
+            <div class="warning-icon">
+                <i class="fas fa-exclamation-triangle"></i>
             </div>
-            <div style="text-align: right;">
-                <div style="color: #4f46e5; font-weight: 700;">${memberStat.totalHours.toFixed(1)}時間</div>
-                <div style="color: #64748b; font-size: 0.9rem;">${memberStat.entryCount}件</div>
+            <div class="warning-content">
+                <h4>${warning.member ? warning.member.name : ''} - ${moment(warning.date).format('YYYY/MM/DD')}</h4>
+                <div class="warning-details">
+                    ${warning.message} (${warning.workload.toFixed(1)}時間)
+                </div>
             </div>
+        </div>
+    `).join('');
+}
+
+function renderWorkloadTable(workloadData) {
+    const tableContainer = document.getElementById('workload-table');
+    if (!tableContainer) return;
+    
+    if (Array.isArray(workloadData)) {
+        // 単一メンバーの場合
+        tableContainer.innerHTML = `
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>日付</th>
+                        <th>業務負荷</th>
+                        <th>ステータス</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${workloadData.map(item => `
+                        <tr>
+                            <td>${moment(item.date).format('YYYY/MM/DD (ddd)')}</td>
+                            <td>${item.workload.toFixed(1)}時間</td>
+                            <td>
+                                <span class="status-badge ${item.status === 'critical' ? 'priority-high' : item.status === 'warning' ? 'priority-medium' : 'priority-low'}">
+                                    ${item.status === 'critical' ? '破綻' : item.status === 'warning' ? '警告' : '正常'}
+                                </span>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
         `;
-        elements.memberStats.appendChild(div);
+    } else {
+        // 全メンバーの場合
+        const dates = Object.values(workloadData)[0]?.workload.map(item => item.date) || [];
+        const members = Object.values(workloadData).map(data => data.member);
+        
+        tableContainer.innerHTML = `
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>日付</th>
+                        ${members.map(member => `<th>${member.name}</th>`).join('')}
+                    </tr>
+                </thead>
+                <tbody>
+                    ${dates.map(date => `
+                        <tr>
+                            <td>${moment(date).format('YYYY/MM/DD (ddd)')}</td>
+                            ${members.map(member => {
+                                const memberWorkload = workloadData[member.id].workload.find(item => item.date === date);
+                                const workload = memberWorkload ? memberWorkload.workload : 0;
+                                const status = memberWorkload ? memberWorkload.status : 'normal';
+                                return `
+                                    <td>
+                                        <span class="status-badge ${status === 'critical' ? 'priority-high' : status === 'warning' ? 'priority-medium' : 'priority-low'}">
+                                            ${workload.toFixed(1)}h
+                                        </span>
+                                    </td>
+                                `;
+                            }).join('')}
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    }
+}
+
+// カレンダーの初期化
+function initializeCalendar() {
+    const calendarEl = document.getElementById('calendar');
+    if (!calendarEl) return;
+    
+    calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'dayGridMonth',
+        locale: 'ja',
+        headerToolbar: {
+            left: 'prev,next today',
+            center: 'title',
+            right: 'dayGridMonth,timeGridWeek,listWeek'
+        },
+        events: function(info, successCallback, failureCallback) {
+            fetch('/api/calendar')
+                .then(response => response.json())
+                .then(events => successCallback(events))
+                .catch(error => {
+                    console.error('カレンダーイベント取得エラー:', error);
+                    failureCallback(error);
+                });
+        },
+        eventClick: function(info) {
+            // イベントクリック時の処理
+            console.log('Event clicked:', info.event);
+        }
     });
     
-    // ジョブ別統計
-    elements.jobStats.innerHTML = '';
-    stats.jobStats
-        .sort((a, b) => b.totalHours - a.totalHours)
-        .forEach(jobStat => {
-            const div = document.createElement('div');
-            div.className = 'stat-item';
-            div.innerHTML = `
-                <div>
-                    <strong>${jobStat.job.name}</strong><br>
-                    <small style="color: #64748b;">${jobStat.job.category}</small>
+    calendar.render();
+}
+
+// タスクリストの更新
+function updateTasksList() {
+    const tasksBody = document.getElementById('tasks-body');
+    if (!tasksBody) return;
+    
+    // フィルター適用
+    let filteredTasks = currentData.tasks;
+    
+    const projectFilter = document.getElementById('task-project-filter').value;
+    const statusFilter = document.getElementById('task-status-filter').value;
+    const memberFilter = document.getElementById('task-member-filter').value;
+    const priorityFilter = document.getElementById('task-priority-filter').value;
+    
+    if (projectFilter) filteredTasks = filteredTasks.filter(t => t.projectId == projectFilter);
+    if (statusFilter) filteredTasks = filteredTasks.filter(t => t.status === statusFilter);
+    if (memberFilter) filteredTasks = filteredTasks.filter(t => t.assigneeId == memberFilter);
+    if (priorityFilter) filteredTasks = filteredTasks.filter(t => t.priority === priorityFilter);
+    
+    if (filteredTasks.length === 0) {
+        tasksBody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 2rem; color: #64748b;">表示するタスクがありません</td></tr>';
+        return;
+    }
+    
+    tasksBody.innerHTML = filteredTasks.map(task => {
+        const member = currentData.members.find(m => m.id === task.assigneeId);
+        const project = currentData.projects.find(p => p.id === task.projectId);
+        
+        return `
+            <tr>
+                <td>${task.name}</td>
+                <td>${project ? project.name : 'Unknown'}</td>
+                <td>${member ? member.name : 'Unknown'}</td>
+                <td>${moment(task.startDate).format('YYYY/MM/DD')}</td>
+                <td>${moment(task.endDate).format('YYYY/MM/DD')}</td>
+                <td>${task.estimatedHours}h</td>
+                <td>
+                    <span class="status-badge status-${task.status}">
+                        ${getStatusText(task.status)}
+                    </span>
+                </td>
+                <td>
+                    <span class="status-badge priority-${task.priority}">
+                        ${getPriorityText(task.priority)}
+                    </span>
+                </td>
+                <td>
+                    <button class="btn btn-small btn-secondary" onclick="editTask(${task.id})">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="btn btn-small btn-danger" onclick="deleteTask(${task.id})">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+// ルーティンジョブリストの更新
+function updateRoutineJobsList() {
+    const routineList = document.getElementById('active-routine-jobs');
+    if (!routineList) return;
+    
+    const activeJobs = currentData.routineJobs.filter(job => job.isActive);
+    
+    if (activeJobs.length === 0) {
+        routineList.innerHTML = '<p style="text-align: center; color: #64748b; padding: 2rem;">アクティブなルーティンジョブはありません</p>';
+        return;
+    }
+    
+    routineList.innerHTML = activeJobs.map(job => {
+        const member = currentData.members.find(m => m.id === job.assigneeId);
+        const weekdayNames = ['日', '月', '火', '水', '木', '金', '土'];
+        const weekdaysText = job.weekdays.map(day => weekdayNames[day === 7 ? 0 : day]).join('、');
+        
+        return `
+            <div class="routine-item">
+                <div class="routine-info">
+                    <h4>${job.name}</h4>
+                    <div class="routine-details">
+                        担当者: ${member ? member.name : 'Unknown'}<br>
+                        工数: ${job.dailyHours}時間/日<br>
+                        実行日: ${weekdaysText}
+                    </div>
                 </div>
-                <div style="text-align: right;">
-                    <div style="color: #4f46e5; font-weight: 700;">${jobStat.totalHours.toFixed(1)}時間</div>
-                    <div style="color: #64748b; font-size: 0.9rem;">${jobStat.entryCount}件</div>
+                <div class="routine-actions">
+                    <button class="btn btn-small btn-secondary" onclick="editRoutineJob(${job.id})">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="btn btn-small btn-danger" onclick="deleteRoutineJob(${job.id})">
+                        <i class="fas fa-trash"></i>
+                    </button>
                 </div>
-            `;
-            elements.jobStats.appendChild(div);
+            </div>
+        `;
+    }).join('');
+    
+    // ルーティンジョブ工数チャート
+    updateRoutineWorkloadChart();
+}
+
+function updateRoutineWorkloadChart() {
+    const ctx = document.getElementById('routine-workload-chart');
+    if (!ctx) return;
+    
+    if (charts.routineWorkload) charts.routineWorkload.destroy();
+    
+    const memberWorkload = {};
+    
+    currentData.routineJobs.filter(job => job.isActive).forEach(job => {
+        const member = currentData.members.find(m => m.id === job.assigneeId);
+        if (member) {
+            const weeklyHours = job.dailyHours * job.weekdays.length;
+            memberWorkload[member.name] = (memberWorkload[member.name] || 0) + weeklyHours;
+        }
+    });
+    
+    const labels = Object.keys(memberWorkload);
+    const data = Object.values(memberWorkload);
+    
+    if (labels.length === 0) {
+        ctx.getContext('2d').clearRect(0, 0, ctx.width, ctx.height);
+        return;
+    }
+    
+    charts.routineWorkload = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: '週間ルーティン工数',
+                data: data,
+                backgroundColor: labels.map((_, index) => {
+                    const colors = ['#4f46e5', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+                    return colors[index % colors.length];
+                }),
+                borderRadius: 4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return value + 'h';
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+// 管理リストの更新
+function updateManagementLists() {
+    updateProjectsList();
+    updateMembersList();
+}
+
+function updateProjectsList() {
+    const projectsList = document.getElementById('projects-list');
+    if (!projectsList) return;
+    
+    if (currentData.projects.length === 0) {
+        projectsList.innerHTML = '<p style="text-align: center; color: #64748b; padding: 2rem;">プロジェクトがありません</p>';
+        return;
+    }
+    
+    projectsList.innerHTML = currentData.projects.map(project => `
+        <div class="manage-item">
+            <div class="manage-item-info">
+                <h4>${project.name}</h4>
+                <div class="manage-item-details">
+                    期間: ${moment(project.startDate).format('YYYY/MM/DD')} - ${moment(project.endDate).format('YYYY/MM/DD')}<br>
+                    ステータス: ${getStatusText(project.status)}
+                </div>
+            </div>
+            <div class="manage-item-actions">
+                <button class="btn btn-small btn-secondary" onclick="editProject(${project.id})">
+                    <i class="fas fa-edit"></i>
+                </button>
+                <button class="btn btn-small btn-danger" onclick="deleteProject(${project.id})">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function updateMembersList() {
+    const membersList = document.getElementById('members-list');
+    if (!membersList) return;
+    
+    if (currentData.members.length === 0) {
+        membersList.innerHTML = '<p style="text-align: center; color: #64748b; padding: 2rem;">メンバーがいません</p>';
+        return;
+    }
+    
+    membersList.innerHTML = currentData.members.map(member => `
+        <div class="manage-item">
+            <div class="manage-item-info">
+                <h4>${member.name}</h4>
+                <div class="manage-item-details">
+                    部署: ${member.department}
+                </div>
+            </div>
+            <div class="manage-item-actions">
+                <button class="btn btn-small btn-secondary" onclick="editMember(${member.id})">
+                    <i class="fas fa-edit"></i>
+                </button>
+                <button class="btn btn-small btn-danger" onclick="deleteMember(${member.id})">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+
+// プロジェクトモーダル
+function openProjectModal(projectId = null) {
+    const modal = elements.projectModal;
+    const title = document.getElementById('project-modal-title');
+    const form = elements.projectForm;
+    
+    if (projectId) {
+        const project = currentData.projects.find(p => p.id === projectId);
+        if (project) {
+            title.textContent = 'プロジェクト編集';
+            document.getElementById('project-id').value = project.id;
+            document.getElementById('project-name').value = project.name;
+            document.getElementById('project-description').value = project.description;
+            document.getElementById('project-start-date').value = project.startDate;
+            document.getElementById('project-end-date').value = project.endDate;
+            document.getElementById('project-status').value = project.status;
+            document.getElementById('project-priority').value = project.priority;
+            document.getElementById('project-color').value = project.color;
+        }
+    } else {
+        title.textContent = 'プロジェクト追加';
+        form.reset();
+        document.getElementById('project-id').value = '';
+        document.getElementById('project-color').value = '#4f46e5';
+    }
+    
+    modal.classList.add('show');
+}
+
+function closeProjectModal() {
+    elements.projectModal.classList.remove('show');
+}
+
+async function handleProjectSubmit(event) {
+    event.preventDefault();
+    
+    const projectId = document.getElementById('project-id').value;
+    const formData = {
+        name: document.getElementById('project-name').value,
+        description: document.getElementById('project-description').value,
+        startDate: document.getElementById('project-start-date').value,
+        endDate: document.getElementById('project-end-date').value,
+        status: document.getElementById('project-status').value,
+        priority: document.getElementById('project-priority').value,
+        color: document.getElementById('project-color').value
+    };
+    
+    const url = projectId ? `/api/projects/${projectId}` : '/api/projects';
+    const method = projectId ? 'PUT' : 'POST';
+    
+    showLoading(true);
+    try {
+        const response = await fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(formData)
         });
+        
+        if (response.ok) {
+            showNotification(projectId ? 'プロジェクトを更新しました' : 'プロジェクトを追加しました', 'success');
+            closeProjectModal();
+            await loadAllData();
+            updateSelects();
+            updateManagementLists();
+            updateDashboard();
+        } else {
+            throw new Error('プロジェクトの保存に失敗しました');
+        }
+    } catch (error) {
+        console.error('プロジェクト保存エラー:', error);
+        showNotification('プロジェクトの保存に失敗しました', 'error');
+    } finally {
+        showLoading(false);
+    }
 }
 
-// モーダルの閉じる
-function closeEditModal() {
-    elements.editModal.classList.remove('show');
-    currentEditingId = null;
+// タスクモーダル
+function openTaskModal(taskId = null) {
+    const modal = elements.taskModal;
+    const title = document.getElementById('task-modal-title');
+    const form = elements.taskForm;
+    
+    if (taskId) {
+        const task = currentData.tasks.find(t => t.id === taskId);
+        if (task) {
+            title.textContent = 'タスク編集';
+            document.getElementById('task-id').value = task.id;
+            document.getElementById('task-name').value = task.name;
+            document.getElementById('task-description').value = task.description;
+            document.getElementById('task-project').value = task.projectId;
+            document.getElementById('task-assignee').value = task.assigneeId;
+            document.getElementById('task-estimated-hours').value = task.estimatedHours;
+            document.getElementById('task-start-date').value = task.startDate;
+            document.getElementById('task-end-date').value = task.endDate;
+            document.getElementById('task-priority').value = task.priority;
+            document.getElementById('task-status').value = task.status;
+        }
+    } else {
+        title.textContent = 'タスク追加';
+        form.reset();
+        document.getElementById('task-id').value = '';
+    }
+    
+    modal.classList.add('show');
 }
 
-// ローディング表示の制御
+function closeTaskModal() {
+    elements.taskModal.classList.remove('show');
+    const warningDiv = document.getElementById('workload-warning');
+    if (warningDiv) warningDiv.style.display = 'none';
+}
+
+async function handleTaskSubmit(event) {
+    event.preventDefault();
+    
+    const taskId = document.getElementById('task-id').value;
+    const formData = {
+        name: document.getElementById('task-name').value,
+        description: document.getElementById('task-description').value,
+        projectId: document.getElementById('task-project').value,
+        assigneeId: document.getElementById('task-assignee').value,
+        estimatedHours: parseFloat(document.getElementById('task-estimated-hours').value),
+        startDate: document.getElementById('task-start-date').value,
+        endDate: document.getElementById('task-end-date').value,
+        priority: document.getElementById('task-priority').value,
+        status: document.getElementById('task-status').value
+    };
+    
+    const url = taskId ? `/api/tasks/${taskId}` : '/api/tasks';
+    const method = taskId ? 'PUT' : 'POST';
+    
+    showLoading(true);
+    try {
+        const response = await fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(formData)
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            // 業務負荷警告の表示
+            if (result.warnings && result.warnings.length > 0) {
+                const warningDiv = document.getElementById('workload-warning');
+                const warningText = document.getElementById('workload-warning-text');
+                
+                const criticalWarnings = result.warnings.filter(w => w.status === 'critical');
+                const normalWarnings = result.warnings.filter(w => w.status === 'warning');
+                
+                if (criticalWarnings.length > 0) {
+                    warningDiv.className = 'workload-warning critical';
+                    warningText.textContent = `破綻警告: ${criticalWarnings.length}日間で業務負荷が10時間を超えます`;
+                } else if (normalWarnings.length > 0) {
+                    warningDiv.className = 'workload-warning';
+                    warningText.textContent = `負荷警告: ${normalWarnings.length}日間で業務負荷が8時間を超えます`;
+                }
+                
+                warningDiv.style.display = 'flex';
+                
+                // 確認ダイアログ
+                const confirmMessage = criticalWarnings.length > 0 
+                    ? '業務負荷が破綻レベルに達しています。このタスクを追加しますか？'
+                    : '業務負荷が高くなっています。このタスクを追加しますか？';
+                    
+                if (!confirm(confirmMessage)) {
+                    return;
+                }
+            }
+            
+            showNotification(taskId ? 'タスクを更新しました' : 'タスクを追加しました', 'success');
+            closeTaskModal();
+            await loadAllData();
+            updateTasksList();
+            updateDashboard();
+            if (calendar) calendar.refetchEvents();
+        } else {
+            throw new Error(result.error || 'タスクの保存に失敗しました');
+        }
+    } catch (error) {
+        console.error('タスク保存エラー:', error);
+        showNotification('タスクの保存に失敗しました', 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+// メンバーモーダル
+function openMemberModal(memberId = null) {
+    const modal = elements.memberModal;
+    const title = document.getElementById('member-modal-title');
+    const form = elements.memberForm;
+    
+    if (memberId) {
+        const member = currentData.members.find(m => m.id === memberId);
+        if (member) {
+            title.textContent = 'メンバー編集';
+            document.getElementById('member-id').value = member.id;
+            document.getElementById('member-name').value = member.name;
+            document.getElementById('member-department').value = member.department;
+            document.getElementById('member-color').value = member.color;
+        }
+    } else {
+        title.textContent = 'メンバー追加';
+        form.reset();
+        document.getElementById('member-id').value = '';
+        document.getElementById('member-color').value = '#6b7280';
+    }
+    
+    modal.classList.add('show');
+}
+
+function closeMemberModal() {
+    elements.memberModal.classList.remove('show');
+}
+
+async function handleMemberSubmit(event) {
+    event.preventDefault();
+    
+    const memberId = document.getElementById('member-id').value;
+    const formData = {
+        name: document.getElementById('member-name').value,
+        department: document.getElementById('member-department').value,
+        color: document.getElementById('member-color').value
+    };
+    
+    const url = memberId ? `/api/members/${memberId}` : '/api/members';
+    const method = memberId ? 'PUT' : 'POST';
+    
+    showLoading(true);
+    try {
+        const response = await fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(formData)
+        });
+        
+        if (response.ok) {
+            showNotification(memberId ? 'メンバーを更新しました' : 'メンバーを追加しました', 'success');
+            closeMemberModal();
+            await loadAllData();
+            updateSelects();
+            updateManagementLists();
+            updateDashboard();
+        } else {
+            throw new Error('メンバーの保存に失敗しました');
+        }
+    } catch (error) {
+        console.error('メンバー保存エラー:', error);
+        showNotification('メンバーの保存に失敗しました', 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+// ルーティンジョブモーダル
+function openRoutineModal(routineId = null) {
+    const modal = elements.routineModal;
+    const title = document.getElementById('routine-modal-title');
+    const form = elements.routineForm;
+    
+    if (routineId) {
+        const routine = currentData.routineJobs.find(r => r.id === routineId);
+        if (routine) {
+            title.textContent = 'ルーティンジョブ編集';
+            document.getElementById('routine-id').value = routine.id;
+            document.getElementById('routine-name').value = routine.name;
+            document.getElementById('routine-description').value = routine.description;
+            document.getElementById('routine-assignee').value = routine.assigneeId;
+            document.getElementById('routine-daily-hours').value = routine.dailyHours;
+            
+            // 曜日チェックボックスを設定
+            const checkboxes = form.querySelectorAll('.weekdays-selector input[type="checkbox"]');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = routine.weekdays.includes(parseInt(checkbox.value));
+            });
+        }
+    } else {
+        title.textContent = 'ルーティンジョブ追加';
+        form.reset();
+        document.getElementById('routine-id').value = '';
+    }
+    
+    modal.classList.add('show');
+}
+
+function closeRoutineModal() {
+    elements.routineModal.classList.remove('show');
+}
+
+async function handleRoutineSubmit(event) {
+    event.preventDefault();
+    
+    const routineId = document.getElementById('routine-id').value;
+    const checkboxes = elements.routineForm.querySelectorAll('.weekdays-selector input[type="checkbox"]:checked');
+    const weekdays = Array.from(checkboxes).map(cb => parseInt(cb.value));
+    
+    if (weekdays.length === 0) {
+        showNotification('実行曜日を1つ以上選択してください', 'error');
+        return;
+    }
+    
+    const formData = {
+        name: document.getElementById('routine-name').value,
+        description: document.getElementById('routine-description').value,
+        assigneeId: document.getElementById('routine-assignee').value,
+        dailyHours: parseFloat(document.getElementById('routine-daily-hours').value),
+        weekdays: weekdays
+    };
+    
+    const url = routineId ? `/api/routine-jobs/${routineId}` : '/api/routine-jobs';
+    const method = routineId ? 'PUT' : 'POST';
+    
+    showLoading(true);
+    try {
+        const response = await fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(formData)
+        });
+        
+        if (response.ok) {
+            showNotification(routineId ? 'ルーティンジョブを更新しました' : 'ルーティンジョブを追加しました', 'success');
+            closeRoutineModal();
+            await loadAllData();
+            updateRoutineJobsList();
+        } else {
+            throw new Error('ルーティンジョブの保存に失敗しました');
+        }
+    } catch (error) {
+        console.error('ルーティンジョブ保存エラー:', error);
+        showNotification('ルーティンジョブの保存に失敗しました', 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+// 編集機能
+function editProject(projectId) {
+    openProjectModal(projectId);
+}
+
+function editTask(taskId) {
+    openTaskModal(taskId);
+}
+
+function editMember(memberId) {
+    openMemberModal(memberId);
+}
+
+function editRoutineJob(routineId) {
+    openRoutineModal(routineId);
+}
+
+// 削除機能
+async function deleteProject(projectId) {
+    if (!confirm('このプロジェクトを削除しますか？関連するタスクも削除されます。')) return;
+    
+    showLoading(true);
+    try {
+        const response = await fetch(`/api/projects/${projectId}`, { method: 'DELETE' });
+        if (response.ok) {
+            showNotification('プロジェクトを削除しました', 'success');
+            await loadAllData();
+            updateSelects();
+            updateManagementLists();
+            updateDashboard();
+            updateTasksList();
+        } else {
+            throw new Error('プロジェクトの削除に失敗しました');
+        }
+    } catch (error) {
+        console.error('プロジェクト削除エラー:', error);
+        showNotification('プロジェクトの削除に失敗しました', 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+async function deleteTask(taskId) {
+    if (!confirm('このタスクを削除しますか？')) return;
+    
+    showLoading(true);
+    try {
+        const response = await fetch(`/api/tasks/${taskId}`, { method: 'DELETE' });
+        if (response.ok) {
+            showNotification('タスクを削除しました', 'success');
+            await loadAllData();
+            updateTasksList();
+            updateDashboard();
+            if (calendar) calendar.refetchEvents();
+        } else {
+            throw new Error('タスクの削除に失敗しました');
+        }
+    } catch (error) {
+        console.error('タスク削除エラー:', error);
+        showNotification('タスクの削除に失敗しました', 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+async function deleteMember(memberId) {
+    if (!confirm('このメンバーを削除しますか？')) return;
+    
+    showLoading(true);
+    try {
+        const response = await fetch(`/api/members/${memberId}`, { method: 'DELETE' });
+        if (response.ok) {
+            showNotification('メンバーを削除しました', 'success');
+            await loadAllData();
+            updateSelects();
+            updateManagementLists();
+            updateDashboard();
+        } else {
+            throw new Error('メンバーの削除に失敗しました');
+        }
+    } catch (error) {
+        console.error('メンバー削除エラー:', error);
+        showNotification('メンバーの削除に失敗しました', 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+async function deleteRoutineJob(routineId) {
+    if (!confirm('このルーティンジョブを削除しますか？')) return;
+    
+    showLoading(true);
+    try {
+        const response = await fetch(`/api/routine-jobs/${routineId}`, { method: 'DELETE' });
+        if (response.ok) {
+            showNotification('ルーティンジョブを削除しました', 'success');
+            await loadAllData();
+            updateRoutineJobsList();
+        } else {
+            throw new Error('ルーティンジョブの削除に失敗しました');
+        }
+    } catch (error) {
+        console.error('ルーティンジョブ削除エラー:', error);
+        showNotification('ルーティンジョブの削除に失敗しました', 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+// ユーティリティ関数
+function getStatusText(status) {
+    const statusMap = {
+        pending: '未着手',
+        in_progress: '進行中',
+        completed: '完了'
+    };
+    return statusMap[status] || status;
+}
+
+function getPriorityText(priority) {
+    const priorityMap = {
+        low: '低',
+        medium: '中',
+        high: '高'
+    };
+    return priorityMap[priority] || priority;
+}
+
 function showLoading(show) {
     if (show) {
         elements.loading.classList.add('show');
@@ -580,7 +1450,6 @@ function showLoading(show) {
     }
 }
 
-// 通知の表示
 function showNotification(message, type = 'success') {
     elements.notification.textContent = message;
     elements.notification.className = `notification ${type}`;
@@ -591,17 +1460,16 @@ function showNotification(message, type = 'success') {
     }, 3000);
 }
 
-// 日付フォーマット
-function formatDate(dateString) {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('ja-JP', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-    });
-}
-
 // グローバル関数として公開（HTMLから呼び出せるように）
-window.editWorkEntry = editWorkEntry;
-window.deleteWorkEntry = deleteWorkEntry;
-window.closeEditModal = closeEditModal;
+window.editProject = editProject;
+window.editTask = editTask;
+window.editMember = editMember;
+window.editRoutineJob = editRoutineJob;
+window.deleteProject = deleteProject;
+window.deleteTask = deleteTask;
+window.deleteMember = deleteMember;
+window.deleteRoutineJob = deleteRoutineJob;
+window.closeProjectModal = closeProjectModal;
+window.closeTaskModal = closeTaskModal;
+window.closeMemberModal = closeMemberModal;
+window.closeRoutineModal = closeRoutineModal;

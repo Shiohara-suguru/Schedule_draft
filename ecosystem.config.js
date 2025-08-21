@@ -1,6 +1,6 @@
 module.exports = {
   apps: [{
-    name: 'routine-job-tracker',
+    name: 'project-management-system',
     script: 'server.js',
     instances: 1,
     autorestart: true,

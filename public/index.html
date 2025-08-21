@@ -3,21 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ルーティンジョブ工数管理システム</title>
+    <title>プロジェクト管理・業務負荷管理システム</title>
     <link rel="stylesheet" href="styles.css">
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <!-- FullCalendar CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.css" rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- FullCalendar JS -->
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
+    <!-- Moment.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
 </head>
 <body>
     <div class="app">
         <!-- ヘッダー -->
         <header class="header">
             <div class="header-content">
-                <h1><i class="fas fa-clock"></i> ルーティンジョブ工数管理</h1>
+                <h1><i class="fas fa-project-diagram"></i> プロジェクト管理システム</h1>
                 <nav class="nav-tabs">
-                    <button class="tab-btn active" data-tab="entry">工数入力</button>
-                    <button class="tab-btn" data-tab="list">記録一覧</button>
-                    <button class="tab-btn" data-tab="stats">統計</button>
+                    <button class="tab-btn active" data-tab="dashboard">ダッシュボード</button>
+                    <button class="tab-btn" data-tab="gantt">ガントチャート</button>
+                    <button class="tab-btn" data-tab="workload">業務負荷</button>
+                    <button class="tab-btn" data-tab="calendar">カレンダー</button>
+                    <button class="tab-btn" data-tab="tasks">タスク管理</button>
+                    <button class="tab-btn" data-tab="routine">ルーティン</button>
                     <button class="tab-btn" data-tab="manage">管理</button>
                 </nav>
             </div>
@@ -25,134 +36,213 @@
 
         <!-- メインコンテンツ -->
         <main class="main">
-            <!-- 工数入力タブ -->
-            <div id="entry-tab" class="tab-content active">
+            <!-- ダッシュボードタブ -->
+            <div id="dashboard-tab" class="tab-content active">
                 <div class="container">
-                    <h2><i class="fas fa-plus-circle"></i> 工数記録の追加</h2>
-                    <div class="form-card">
-                        <form id="work-entry-form">
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label for="member-select">担当者 <span class="required">*</span></label>
-                                    <select id="member-select" required>
-                                        <option value="">担当者を選択してください</option>
-                                    </select>
-                                </div>
-                                <div class="form-group">
-                                    <label for="job-select">ルーティンジョブ <span class="required">*</span></label>
-                                    <select id="job-select" required>
-                                        <option value="">ジョブを選択してください</option>
-                                    </select>
-                                </div>
+                    <h2><i class="fas fa-tachometer-alt"></i> プロジェクトダッシュボード</h2>
+                    
+                    <!-- KPI カード -->
+                    <div class="kpi-grid">
+                        <div class="kpi-card">
+                            <div class="kpi-icon"><i class="fas fa-project-diagram"></i></div>
+                            <div class="kpi-info">
+                                <div class="kpi-value" id="total-projects">0</div>
+                                <div class="kpi-label">プロジェクト数</div>
                             </div>
-                            
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label for="hours-input">工数（時間） <span class="required">*</span></label>
-                                    <input type="number" id="hours-input" step="0.5" min="0" max="24" required>
-                                </div>
-                                <div class="form-group">
-                                    <label for="date-input">日付 <span class="required">*</span></label>
-                                    <input type="date" id="date-input" required>
-                                </div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="kpi-icon"><i class="fas fa-tasks"></i></div>
+                            <div class="kpi-info">
+                                <div class="kpi-value" id="total-tasks">0</div>
+                                <div class="kpi-label">総タスク数</div>
                             </div>
-                            
-                            <div class="form-group">
-                                <label for="notes-input">備考</label>
-                                <textarea id="notes-input" rows="3" placeholder="作業内容や特記事項があれば記入してください"></textarea>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="kpi-icon"><i class="fas fa-clock"></i></div>
+                            <div class="kpi-info">
+                                <div class="kpi-value" id="total-hours">0</div>
+                                <div class="kpi-label">総予定工数</div>
                             </div>
-                            
-                            <div class="form-actions">
-                                <button type="submit" class="btn btn-primary">
-                                    <i class="fas fa-save"></i> 記録を追加
-                                </button>
-                                <button type="button" id="clear-form" class="btn btn-secondary">
-                                    <i class="fas fa-eraser"></i> クリア
-                                </button>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="kpi-icon"><i class="fas fa-users"></i></div>
+                            <div class="kpi-info">
+                                <div class="kpi-value" id="total-members">0</div>
+                                <div class="kpi-label">チームメンバー</div>
                             </div>
-                        </form>
+                        </div>
+                    </div>
+                    
+                    <!-- プロジェクト状況とタスク進捗 -->
+                    <div class="dashboard-grid">
+                        <div class="dashboard-card">
+                            <h3><i class="fas fa-chart-pie"></i> プロジェクト状況</h3>
+                            <canvas id="project-status-chart"></canvas>
+                        </div>
+                        <div class="dashboard-card">
+                            <h3><i class="fas fa-chart-bar"></i> タスク進捗状況</h3>
+                            <canvas id="task-progress-chart"></canvas>
+                        </div>
+                    </div>
+                    
+                    <!-- 最近のアクティビティ -->
+                    <div class="dashboard-card">
+                        <h3><i class="fas fa-history"></i> 最近のアクティビティ</h3>
+                        <div id="recent-activities" class="activity-list">
+                            <!-- アクティビティがここに表示されます -->
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- 記録一覧タブ -->
-            <div id="list-tab" class="tab-content">
+            <!-- ガントチャートタブ -->
+            <div id="gantt-tab" class="tab-content">
                 <div class="container">
-                    <div class="list-header">
-                        <h2><i class="fas fa-list"></i> 工数記録一覧</h2>
-                        <div class="filter-controls">
-                            <input type="date" id="filter-start-date" placeholder="開始日">
-                            <input type="date" id="filter-end-date" placeholder="終了日">
-                            <select id="filter-member">
-                                <option value="">全担当者</option>
+                    <div class="gantt-header">
+                        <h2><i class="fas fa-chart-gantt"></i> ガントチャート</h2>
+                        <div class="gantt-controls">
+                            <select id="gantt-project-filter">
+                                <option value="">すべてのプロジェクト</option>
                             </select>
-                            <select id="filter-job">
-                                <option value="">全ジョブ</option>
+                            <select id="gantt-member-filter">
+                                <option value="">すべてのメンバー</option>
                             </select>
-                            <button id="apply-filter" class="btn btn-primary">
-                                <i class="fas fa-filter"></i> フィルター
+                            <button id="gantt-refresh" class="btn btn-primary">
+                                <i class="fas fa-sync"></i> 更新
                             </button>
                         </div>
                     </div>
                     
+                    <div class="gantt-container">
+                        <div id="gantt-chart" class="gantt-chart">
+                            <!-- ガントチャートがここに表示されます -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 業務負荷タブ -->
+            <div id="workload-tab" class="tab-content">
+                <div class="container">
+                    <div class="workload-header">
+                        <h2><i class="fas fa-weight-hanging"></i> 業務負荷管理</h2>
+                        <div class="workload-controls">
+                            <input type="date" id="workload-start-date">
+                            <input type="date" id="workload-end-date">
+                            <select id="workload-member-filter">
+                                <option value="">すべてのメンバー</option>
+                            </select>
+                            <button id="workload-update" class="btn btn-primary">
+                                <i class="fas fa-sync"></i> 更新
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="workload-grid">
+                        <div class="workload-card">
+                            <h3><i class="fas fa-chart-line"></i> 業務負荷トレンド</h3>
+                            <canvas id="workload-trend-chart"></canvas>
+                        </div>
+                        <div class="workload-card">
+                            <h3><i class="fas fa-exclamation-triangle"></i> 負荷警告</h3>
+                            <div id="workload-warnings" class="warnings-list">
+                                <!-- 負荷警告がここに表示されます -->
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="workload-table-container">
+                        <h3><i class="fas fa-table"></i> 詳細負荷表</h3>
+                        <div id="workload-table" class="workload-table">
+                            <!-- 負荷テーブルがここに表示されます -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- カレンダータブ -->
+            <div id="calendar-tab" class="tab-content">
+                <div class="container">
+                    <h2><i class="fas fa-calendar-alt"></i> プロジェクトカレンダー</h2>
+                    <div class="calendar-container">
+                        <div id="calendar"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- タスク管理タブ -->
+            <div id="tasks-tab" class="tab-content">
+                <div class="container">
+                    <div class="tasks-header">
+                        <h2><i class="fas fa-tasks"></i> タスク管理</h2>
+                        <button id="add-task-btn" class="btn btn-primary">
+                            <i class="fas fa-plus"></i> タスク追加
+                        </button>
+                    </div>
+                    
+                    <div class="tasks-filters">
+                        <select id="task-project-filter">
+                            <option value="">すべてのプロジェクト</option>
+                        </select>
+                        <select id="task-status-filter">
+                            <option value="">すべてのステータス</option>
+                            <option value="pending">未着手</option>
+                            <option value="in_progress">進行中</option>
+                            <option value="completed">完了</option>
+                        </select>
+                        <select id="task-member-filter">
+                            <option value="">すべてのメンバー</option>
+                        </select>
+                        <select id="task-priority-filter">
+                            <option value="">すべての優先度</option>
+                            <option value="high">高</option>
+                            <option value="medium">中</option>
+                            <option value="low">低</option>
+                        </select>
+                    </div>
+                    
                     <div class="table-container">
-                        <table id="work-entries-table" class="data-table">
+                        <table id="tasks-table" class="data-table">
                             <thead>
                                 <tr>
-                                    <th>日付</th>
+                                    <th>タスク名</th>
+                                    <th>プロジェクト</th>
                                     <th>担当者</th>
-                                    <th>ジョブ名</th>
+                                    <th>開始日</th>
+                                    <th>終了日</th>
                                     <th>工数</th>
-                                    <th>備考</th>
+                                    <th>ステータス</th>
+                                    <th>優先度</th>
                                     <th>操作</th>
                                 </tr>
                             </thead>
-                            <tbody id="work-entries-body">
+                            <tbody id="tasks-body">
                             </tbody>
                         </table>
                     </div>
                 </div>
             </div>
 
-            <!-- 統計タブ -->
-            <div id="stats-tab" class="tab-content">
+            <!-- ルーティンジョブタブ -->
+            <div id="routine-tab" class="tab-content">
                 <div class="container">
-                    <h2><i class="fas fa-chart-bar"></i> 工数統計</h2>
-                    
-                    <div class="stats-controls">
-                        <input type="date" id="stats-start-date">
-                        <input type="date" id="stats-end-date">
-                        <button id="update-stats" class="btn btn-primary">
-                            <i class="fas fa-sync"></i> 統計更新
+                    <div class="routine-header">
+                        <h2><i class="fas fa-repeat"></i> ルーティンジョブ管理</h2>
+                        <button id="add-routine-btn" class="btn btn-primary">
+                            <i class="fas fa-plus"></i> ルーティンジョブ追加
                         </button>
                     </div>
                     
-                    <div class="stats-grid">
-                        <!-- 全体統計 -->
-                        <div class="stats-card">
-                            <h3><i class="fas fa-clock"></i> 全体統計</h3>
-                            <div id="total-stats">
-                                <div class="stat-item">
-                                    <span class="stat-label">総工数：</span>
-                                    <span class="stat-value" id="total-hours">0</span> 時間
-                                </div>
-                                <div class="stat-item">
-                                    <span class="stat-label">総記録数：</span>
-                                    <span class="stat-value" id="total-entries">0</span> 件
-                                </div>
+                    <div class="routine-grid">
+                        <div class="routine-card">
+                            <h3><i class="fas fa-clock"></i> アクティブなルーティンジョブ</h3>
+                            <div id="active-routine-jobs" class="routine-list">
+                                <!-- アクティブなルーティンジョブがここに表示されます -->
                             </div>
                         </div>
-                        
-                        <!-- 担当者別統計 -->
-                        <div class="stats-card">
-                            <h3><i class="fas fa-users"></i> 担当者別統計</h3>
-                            <div id="member-stats"></div>
-                        </div>
-                        
-                        <!-- ジョブ別統計 -->
-                        <div class="stats-card">
-                            <h3><i class="fas fa-tasks"></i> ジョブ別統計</h3>
-                            <div id="job-stats"></div>
+                        <div class="routine-card">
+                            <h3><i class="fas fa-chart-area"></i> ルーティンジョブ工数統計</h3>
+                            <canvas id="routine-workload-chart"></canvas>
                         </div>
                     </div>
                 </div>
@@ -161,47 +251,33 @@
             <!-- 管理タブ -->
             <div id="manage-tab" class="tab-content">
                 <div class="container">
-                    <h2><i class="fas fa-cogs"></i> データ管理</h2>
+                    <h2><i class="fas fa-cogs"></i> システム管理</h2>
                     
                     <div class="manage-grid">
-                        <!-- 担当者管理 -->
+                        <!-- プロジェクト管理 -->
                         <div class="manage-card">
-                            <h3><i class="fas fa-user-plus"></i> 担当者追加</h3>
-                            <form id="add-member-form">
-                                <div class="form-group">
-                                    <label for="member-name">名前</label>
-                                    <input type="text" id="member-name" required>
-                                </div>
-                                <div class="form-group">
-                                    <label for="member-department">部署</label>
-                                    <input type="text" id="member-department" required>
-                                </div>
-                                <button type="submit" class="btn btn-primary">
-                                    <i class="fas fa-plus"></i> 担当者追加
+                            <h3><i class="fas fa-project-diagram"></i> プロジェクト管理</h3>
+                            <div class="manage-actions">
+                                <button id="add-project-btn" class="btn btn-primary">
+                                    <i class="fas fa-plus"></i> プロジェクト追加
                                 </button>
-                            </form>
+                                <div id="projects-list" class="manage-list">
+                                    <!-- プロジェクト一覧がここに表示されます -->
+                                </div>
+                            </div>
                         </div>
                         
-                        <!-- ジョブ管理 -->
+                        <!-- メンバー管理 -->
                         <div class="manage-card">
-                            <h3><i class="fas fa-briefcase"></i> ジョブ追加</h3>
-                            <form id="add-job-form">
-                                <div class="form-group">
-                                    <label for="job-name">ジョブ名</label>
-                                    <input type="text" id="job-name" required>
-                                </div>
-                                <div class="form-group">
-                                    <label for="job-description">説明</label>
-                                    <textarea id="job-description" rows="2"></textarea>
-                                </div>
-                                <div class="form-group">
-                                    <label for="job-category">カテゴリ</label>
-                                    <input type="text" id="job-category" value="その他">
-                                </div>
-                                <button type="submit" class="btn btn-primary">
-                                    <i class="fas fa-plus"></i> ジョブ追加
+                            <h3><i class="fas fa-users"></i> メンバー管理</h3>
+                            <div class="manage-actions">
+                                <button id="add-member-btn" class="btn btn-primary">
+                                    <i class="fas fa-plus"></i> メンバー追加
                                 </button>
-                            </form>
+                                <div id="members-list" class="manage-list">
+                                    <!-- メンバー一覧がここに表示されます -->
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -209,47 +285,240 @@
         </main>
     </div>
 
-    <!-- 編集モーダル -->
-    <div id="edit-modal" class="modal">
+    <!-- プロジェクト追加/編集モーダル -->
+    <div id="project-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3><i class="fas fa-edit"></i> 工数記録の編集</h3>
-                <button class="modal-close" onclick="closeEditModal()">&times;</button>
+                <h3><i class="fas fa-project-diagram"></i> <span id="project-modal-title">プロジェクト追加</span></h3>
+                <button class="modal-close" onclick="closeProjectModal()">&times;</button>
             </div>
             <div class="modal-body">
-                <form id="edit-form">
-                    <input type="hidden" id="edit-entry-id">
+                <form id="project-form">
+                    <input type="hidden" id="project-id">
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="edit-member-select">担当者</label>
-                            <select id="edit-member-select" required>
-                            </select>
+                            <label for="project-name">プロジェクト名 <span class="required">*</span></label>
+                            <input type="text" id="project-name" required>
                         </div>
                         <div class="form-group">
-                            <label for="edit-job-select">ルーティンジョブ</label>
-                            <select id="edit-job-select" required>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="edit-hours-input">工数（時間）</label>
-                            <input type="number" id="edit-hours-input" step="0.5" min="0" max="24" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="edit-date-input">日付</label>
-                            <input type="date" id="edit-date-input" required>
+                            <label for="project-color">色</label>
+                            <input type="color" id="project-color" value="#4f46e5">
                         </div>
                     </div>
                     <div class="form-group">
-                        <label for="edit-notes-input">備考</label>
-                        <textarea id="edit-notes-input" rows="3"></textarea>
+                        <label for="project-description">説明</label>
+                        <textarea id="project-description" rows="3"></textarea>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="project-start-date">開始日 <span class="required">*</span></label>
+                            <input type="date" id="project-start-date" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="project-end-date">終了日 <span class="required">*</span></label>
+                            <input type="date" id="project-end-date" required>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="project-status">ステータス</label>
+                            <select id="project-status">
+                                <option value="pending">未着手</option>
+                                <option value="in_progress">進行中</option>
+                                <option value="completed">完了</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="project-priority">優先度</label>
+                            <select id="project-priority">
+                                <option value="low">低</option>
+                                <option value="medium">中</option>
+                                <option value="high">高</option>
+                            </select>
+                        </div>
                     </div>
                     <div class="form-actions">
                         <button type="submit" class="btn btn-primary">
-                            <i class="fas fa-save"></i> 更新
+                            <i class="fas fa-save"></i> 保存
                         </button>
-                        <button type="button" class="btn btn-secondary" onclick="closeEditModal()">
+                        <button type="button" class="btn btn-secondary" onclick="closeProjectModal()">
+                            <i class="fas fa-times"></i> キャンセル
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- タスク追加/編集モーダル -->
+    <div id="task-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-tasks"></i> <span id="task-modal-title">タスク追加</span></h3>
+                <button class="modal-close" onclick="closeTaskModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="task-form">
+                    <input type="hidden" id="task-id">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="task-name">タスク名 <span class="required">*</span></label>
+                            <input type="text" id="task-name" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="task-project">プロジェクト <span class="required">*</span></label>
+                            <select id="task-project" required>
+                                <option value="">プロジェクトを選択</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="task-description">説明</label>
+                        <textarea id="task-description" rows="3"></textarea>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="task-assignee">担当者 <span class="required">*</span></label>
+                            <select id="task-assignee" required>
+                                <option value="">担当者を選択</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="task-estimated-hours">予定工数（時間） <span class="required">*</span></label>
+                            <input type="number" id="task-estimated-hours" step="0.5" min="0" required>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="task-start-date">開始日 <span class="required">*</span></label>
+                            <input type="date" id="task-start-date" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="task-end-date">終了日 <span class="required">*</span></label>
+                            <input type="date" id="task-end-date" required>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="task-priority">優先度</label>
+                            <select id="task-priority">
+                                <option value="low">低</option>
+                                <option value="medium">中</option>
+                                <option value="high">高</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="task-status">ステータス</label>
+                            <select id="task-status">
+                                <option value="pending">未着手</option>
+                                <option value="in_progress">進行中</option>
+                                <option value="completed">完了</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="workload-warning" class="workload-warning" style="display: none;">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <span id="workload-warning-text"></span>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> 保存
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="closeTaskModal()">
+                            <i class="fas fa-times"></i> キャンセル
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- メンバー追加/編集モーダル -->
+    <div id="member-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-user"></i> <span id="member-modal-title">メンバー追加</span></h3>
+                <button class="modal-close" onclick="closeMemberModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="member-form">
+                    <input type="hidden" id="member-id">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="member-name">名前 <span class="required">*</span></label>
+                            <input type="text" id="member-name" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="member-department">部署 <span class="required">*</span></label>
+                            <input type="text" id="member-department" required>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="member-color">カラー</label>
+                        <input type="color" id="member-color" value="#6b7280">
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> 保存
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="closeMemberModal()">
+                            <i class="fas fa-times"></i> キャンセル
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ルーティンジョブ追加/編集モーダル -->
+    <div id="routine-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-repeat"></i> <span id="routine-modal-title">ルーティンジョブ追加</span></h3>
+                <button class="modal-close" onclick="closeRoutineModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="routine-form">
+                    <input type="hidden" id="routine-id">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="routine-name">ジョブ名 <span class="required">*</span></label>
+                            <input type="text" id="routine-name" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="routine-assignee">担当者 <span class="required">*</span></label>
+                            <select id="routine-assignee" required>
+                                <option value="">担当者を選択</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="routine-description">説明</label>
+                        <textarea id="routine-description" rows="3"></textarea>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="routine-daily-hours">1日の工数（時間） <span class="required">*</span></label>
+                            <input type="number" id="routine-daily-hours" step="0.5" min="0" required>
+                        </div>
+                        <div class="form-group">
+                            <label>実行曜日 <span class="required">*</span></label>
+                            <div class="weekdays-selector">
+                                <label><input type="checkbox" value="1"> 月</label>
+                                <label><input type="checkbox" value="2"> 火</label>
+                                <label><input type="checkbox" value="3"> 水</label>
+                                <label><input type="checkbox" value="4"> 木</label>
+                                <label><input type="checkbox" value="5"> 金</label>
+                                <label><input type="checkbox" value="6"> 土</label>
+                                <label><input type="checkbox" value="7"> 日</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> 保存
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="closeRoutineModal()">
                             <i class="fas fa-times"></i> キャンセル
                         </button>
                     </div>
