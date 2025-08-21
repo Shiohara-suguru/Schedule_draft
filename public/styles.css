@@ -158,6 +158,12 @@ body {
     padding: 2rem;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
     border: 1px solid rgba(255, 255, 255, 0.2);
+    position: relative;
+}
+
+.dashboard-card canvas {
+    max-height: 300px !important;
+    height: 300px !important;
 }
 
 .dashboard-card h3 {
@@ -338,6 +344,12 @@ body {
     border-radius: 16px;
     padding: 2rem;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    position: relative;
+}
+
+.workload-card canvas {
+    max-height: 350px !important;
+    height: 350px !important;
 }
 
 .workload-card h3 {
@@ -440,6 +452,12 @@ body {
     border-radius: 16px;
     padding: 2rem;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    position: relative;
+}
+
+.routine-card canvas {
+    max-height: 300px !important;
+    height: 300px !important;
 }
 
 .routine-card h3 {
@@ -1014,6 +1032,23 @@ body {
     .data-table td {
         padding: 0.75rem 0.5rem;
     }
+}
+
+/* チャート関連の制約 */
+canvas {
+    max-width: 100% !important;
+    max-height: 400px !important;
+    width: auto !important;
+    height: auto !important;
+}
+
+/* Chart.jsコンテナの制約 */
+.dashboard-card canvas,
+.workload-card canvas,
+.routine-card canvas {
+    max-height: 300px !important;
+    height: 300px !important;
+    width: 100% !important;
 }
 
 /* 特殊な表示効果 */

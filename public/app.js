@@ -55,10 +55,12 @@ async function initializeApp() {
     // 初期データの読み込み
     await loadAllData();
     
-    // UI要素の更新
-    updateDashboard();
-    updateSelects();
-    initializeCalendar();
+    // UI要素の更新（チャート初期化のため少し遅延）
+    setTimeout(() => {
+        updateDashboard();
+        updateSelects();
+        initializeCalendar();
+    }, 100);
     
     console.log('プロジェクト管理システムの初期化が完了しました');
 }
@@ -227,7 +229,16 @@ function updateDashboardCharts() {
             completed: currentData.projects?.filter(p => p.status === 'completed').length || 0
         };
         
-        if (charts.projectStatus) charts.projectStatus.destroy();
+        if (charts.projectStatus) {
+            charts.projectStatus.destroy();
+            charts.projectStatus = null;
+        }
+        
+        // 強制的にcanvasサイズをリセット
+        projectStatusCtx.style.width = '';
+        projectStatusCtx.style.height = '';
+        projectStatusCtx.width = 0;
+        projectStatusCtx.height = 0;
         
         charts.projectStatus = new Chart(projectStatusCtx, {
             type: 'doughnut',
@@ -241,7 +252,8 @@ function updateDashboardCharts() {
             },
             options: {
                 responsive: true,
-                maintainAspectRatio: false,
+                maintainAspectRatio: true,
+                aspectRatio: 1.5,
                 animation: {
                     duration: 300
                 },
@@ -249,6 +261,9 @@ function updateDashboardCharts() {
                     legend: {
                         position: 'bottom'
                     }
+                },
+                layout: {
+                    padding: 10
                 }
             }
         });
@@ -263,7 +278,16 @@ function updateDashboardCharts() {
             completed: currentData.tasks?.filter(t => t.status === 'completed').length || 0
         };
         
-        if (charts.taskProgress) charts.taskProgress.destroy();
+        if (charts.taskProgress) {
+            charts.taskProgress.destroy();
+            charts.taskProgress = null;
+        }
+        
+        // 強制的にcanvasサイズをリセット
+        taskProgressCtx.style.width = '';
+        taskProgressCtx.style.height = '';
+        taskProgressCtx.width = 0;
+        taskProgressCtx.height = 0;
         
         charts.taskProgress = new Chart(taskProgressCtx, {
             type: 'bar',
@@ -278,7 +302,8 @@ function updateDashboardCharts() {
             },
             options: {
                 responsive: true,
-                maintainAspectRatio: false,
+                maintainAspectRatio: true,
+                aspectRatio: 2,
                 animation: {
                     duration: 0
                 },
@@ -297,6 +322,9 @@ function updateDashboardCharts() {
                             precision: 0
                         }
                     }
+                },
+                layout: {
+                    padding: 10
                 }
             }
         });
@@ -508,7 +536,16 @@ function renderWorkloadChart(workloadData, memberFilter) {
     const ctx = document.getElementById('workload-trend-chart');
     if (!ctx) return;
     
-    if (charts.workloadTrend) charts.workloadTrend.destroy();
+    if (charts.workloadTrend) {
+        charts.workloadTrend.destroy();
+        charts.workloadTrend = null;
+    }
+    
+    // 強制的にcanvasサイズをリセット
+    ctx.style.width = '';
+    ctx.style.height = '';
+    ctx.width = 0;
+    ctx.height = 0;
     
     if (memberFilter) {
         // 単一メンバーの場合
@@ -535,7 +572,8 @@ function renderWorkloadChart(workloadData, memberFilter) {
             },
             options: {
                 responsive: true,
-                maintainAspectRatio: false,
+                maintainAspectRatio: true,
+                aspectRatio: 2.5,
                 animation: {
                     duration: 300
                 },
@@ -581,6 +619,9 @@ function renderWorkloadChart(workloadData, memberFilter) {
                         radius: 4,
                         hoverRadius: 6
                     }
+                },
+                layout: {
+                    padding: 10
                 }
             }
         });
@@ -609,7 +650,8 @@ function renderWorkloadChart(workloadData, memberFilter) {
             },
             options: {
                 responsive: true,
-                maintainAspectRatio: false,
+                maintainAspectRatio: true,
+                aspectRatio: 2.5,
                 animation: {
                     duration: 300
                 },
@@ -643,6 +685,9 @@ function renderWorkloadChart(workloadData, memberFilter) {
                             color: 'rgba(0,0,0,0.1)'
                         }
                     }
+                },
+                layout: {
+                    padding: 10
                 }
             }
         });
@@ -924,12 +969,19 @@ function updateRoutineWorkloadChart() {
     const labels = Object.keys(memberWorkload);
     const data = Object.values(memberWorkload).filter(d => !isNaN(d) && d > 0);
     
+    if (charts.routineWorkload) {
+        charts.routineWorkload.destroy();
+        charts.routineWorkload = null;
+    }
+    
+    // 強制的にcanvasサイズをリセット
+    ctx.style.width = '';
+    ctx.style.height = '';
+    ctx.width = 0;
+    ctx.height = 0;
+    
     if (labels.length === 0 || data.length === 0) {
         // 空のデータの場合はチャートをクリア
-        if (charts.routineWorkload) {
-            charts.routineWorkload.destroy();
-            charts.routineWorkload = null;
-        }
         ctx.style.display = 'none';
         return;
     }
@@ -951,7 +1003,8 @@ function updateRoutineWorkloadChart() {
         },
         options: {
             responsive: true,
-            maintainAspectRatio: false,
+            maintainAspectRatio: true,
+            aspectRatio: 2,
             animation: {
                 duration: 300
             },
@@ -981,6 +1034,9 @@ function updateRoutineWorkloadChart() {
                         display: false
                     }
                 }
+            },
+            layout: {
+                padding: 10
             }
         }
     });
