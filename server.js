@@ -262,12 +262,50 @@ function migrateTaskData(data) {
             task.approvalHistory = [];
             updated = true;
         }
+        
+        // 進捗管理関連フィールドを追加
+        if (!task.hasOwnProperty('plannedProgress')) {
+            task.plannedProgress = 0; // 計画進捗率 (0-100)
+            updated = true;
+        }
+        if (!task.hasOwnProperty('actualProgress')) {
+            task.actualProgress = 0; // 実際進捗率 (0-100)
+            updated = true;
+        }
+        if (!task.hasOwnProperty('originalStartDate')) {
+            task.originalStartDate = task.startDate; // 元の開始日
+            updated = true;
+        }
+        if (!task.hasOwnProperty('originalEndDate')) {
+            task.originalEndDate = task.endDate; // 元の終了日
+            updated = true;
+        }
+        if (!task.hasOwnProperty('linkedTasks')) {
+            task.linkedTasks = []; // 連動タスクID配列
+            updated = true;
+        }
+        if (!task.hasOwnProperty('delayStatus')) {
+            task.delayStatus = 'on_schedule'; // 'on_schedule', 'delayed', 'at_risk'
+            updated = true;
+        }
+        if (!task.hasOwnProperty('delayMessage')) {
+            task.delayMessage = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('progressHistory')) {
+            task.progressHistory = [];
+            updated = true;
+        }
+        if (!task.hasOwnProperty('scheduleChangeHistory')) {
+            task.scheduleChangeHistory = [];
+            updated = true;
+        }
     });
     
     // 更新があった場合はファイルに保存
     if (updated) {
         saveData(data);
-        console.log('タスクデータを階層承認機能対応に移行しました');
+        console.log('タスクデータを進捗管理機能対応に移行しました');
     }
 }
 
@@ -543,7 +581,18 @@ app.post('/api/tasks', (req, res) => {
         approvalLevel1At: null,
         approvalLevel2At: null,
         approvalLevel3At: null,
-        approvalHistory: []
+        approvalHistory: [],
+        
+        // 進捗管理関連フィールド
+        plannedProgress: 0,
+        actualProgress: 0,
+        originalStartDate: startDate,
+        originalEndDate: endDate,
+        linkedTasks: [],
+        delayStatus: 'on_schedule',
+        delayMessage: null,
+        progressHistory: [],
+        scheduleChangeHistory: []
     };
     
     data.tasks.push(newTask);
@@ -774,6 +823,184 @@ app.post('/api/tasks/:id/reject-with-level', (req, res) => {
     }
 });
 
+// 進捗管理エンドポイント
+app.post('/api/tasks/:id/update-progress', (req, res) => {
+    const data = loadData();
+    const taskId = parseInt(req.params.id);
+    const { plannedProgress, actualProgress, notes } = req.body;
+    
+    const taskIndex = data.tasks.findIndex(t => t.id === taskId);
+    if (taskIndex === -1) {
+        return res.status(404).json({ error: 'タスクが見つかりません' });
+    }
+    
+    const task = data.tasks[taskIndex];
+    const currentTime = new Date().toISOString();
+    
+    // 進捗率を更新
+    task.plannedProgress = Math.min(100, Math.max(0, plannedProgress || 0));
+    task.actualProgress = Math.min(100, Math.max(0, actualProgress || 0));
+    
+    // 進捗履歴に追加
+    task.progressHistory.push({
+        timestamp: currentTime,
+        plannedProgress: task.plannedProgress,
+        actualProgress: task.actualProgress,
+        notes: notes || '',
+        updatedBy: 'user' // 実際にはユーザーIDを使用
+    });
+    
+    // 遅延ステータスをチェック
+    checkDelayStatus(task);
+    
+    if (saveData(data)) {
+        res.json({ 
+            success: true, 
+            task: task,
+            delayWarning: task.delayStatus !== 'on_schedule'
+        });
+    } else {
+        res.status(500).json({ error: 'データの保存に失敗しました' });
+    }
+});
+
+app.post('/api/tasks/:id/update-linked-tasks', (req, res) => {
+    const data = loadData();
+    const taskId = parseInt(req.params.id);
+    const { linkedTaskIds } = req.body;
+    
+    const taskIndex = data.tasks.findIndex(t => t.id === taskId);
+    if (taskIndex === -1) {
+        return res.status(404).json({ error: 'タスクが見つかりません' });
+    }
+    
+    // 連動タスクのIDが存在するかチェック
+    const validLinkedTaskIds = linkedTaskIds.filter(id => {
+        return data.tasks.some(t => t.id === parseInt(id));
+    });
+    
+    data.tasks[taskIndex].linkedTasks = validLinkedTaskIds.map(id => parseInt(id));
+    
+    if (saveData(data)) {
+        res.json({ success: true, task: data.tasks[taskIndex] });
+    } else {
+        res.status(500).json({ error: 'データの保存に失敗しました' });
+    }
+});
+
+app.post('/api/tasks/:id/reschedule-with-linked', (req, res) => {
+    const data = loadData();
+    const taskId = parseInt(req.params.id);
+    const { newStartDate, newEndDate, updateLinkedTasks, reason } = req.body;
+    
+    const taskIndex = data.tasks.findIndex(t => t.id === taskId);
+    if (taskIndex === -1) {
+        return res.status(404).json({ error: 'タスクが見つかりません' });
+    }
+    
+    const task = data.tasks[taskIndex];
+    const currentTime = new Date().toISOString();
+    const oldStartDate = task.startDate;
+    const oldEndDate = task.endDate;
+    
+    // スケジュール変更履歴に追加
+    task.scheduleChangeHistory.push({
+        timestamp: currentTime,
+        oldStartDate: oldStartDate,
+        oldEndDate: oldEndDate,
+        newStartDate: newStartDate,
+        newEndDate: newEndDate,
+        reason: reason || '',
+        type: 'manual_reschedule'
+    });
+    
+    // 日程を更新
+    task.startDate = newStartDate;
+    task.endDate = newEndDate;
+    
+    // 遅延ステータスをリセット
+    task.delayStatus = 'on_schedule';
+    task.delayMessage = null;
+    
+    const updatedTasks = [task];
+    
+    // 連動タスクを更新
+    if (updateLinkedTasks && task.linkedTasks.length > 0) {
+        const daysDifference = (new Date(newEndDate) - new Date(oldEndDate)) / (1000 * 60 * 60 * 24);
+        
+        task.linkedTasks.forEach(linkedTaskId => {
+            const linkedTaskIndex = data.tasks.findIndex(t => t.id === linkedTaskId);
+            if (linkedTaskIndex !== -1) {
+                const linkedTask = data.tasks[linkedTaskIndex];
+                const linkedOldStartDate = linkedTask.startDate;
+                const linkedOldEndDate = linkedTask.endDate;
+                
+                // 連動タスクの日程を調整
+                const linkedNewStartDate = new Date(new Date(linkedTask.startDate).getTime() + daysDifference * 24 * 60 * 60 * 1000);
+                const linkedNewEndDate = new Date(new Date(linkedTask.endDate).getTime() + daysDifference * 24 * 60 * 60 * 1000);
+                
+                linkedTask.startDate = linkedNewStartDate.toISOString().split('T')[0];
+                linkedTask.endDate = linkedNewEndDate.toISOString().split('T')[0];
+                
+                // 遅延記録を追加
+                linkedTask.scheduleChangeHistory.push({
+                    timestamp: currentTime,
+                    oldStartDate: linkedOldStartDate,
+                    oldEndDate: linkedOldEndDate,
+                    newStartDate: linkedTask.startDate,
+                    newEndDate: linkedTask.endDate,
+                    reason: `連動タスク(ID:${taskId})の遅延による自動調整`,
+                    type: 'linked_task_adjustment',
+                    sourceTaskId: taskId
+                });
+                
+                updatedTasks.push(linkedTask);
+            }
+        });
+    }
+    
+    if (saveData(data)) {
+        res.json({ 
+            success: true, 
+            updatedTasks: updatedTasks,
+            message: updateLinkedTasks ? 'スケジュールと連動タスクを更新しました' : 'スケジュールを更新しました'
+        });
+    } else {
+        res.status(500).json({ error: 'データの保存に失敗しました' });
+    }
+});
+
+// 遅延ステータスチェック関数
+function checkDelayStatus(task) {
+    const today = new Date();
+    const endDate = new Date(task.endDate);
+    const totalDays = (new Date(task.endDate) - new Date(task.startDate)) / (1000 * 60 * 60 * 24);
+    const elapsedDays = (today - new Date(task.startDate)) / (1000 * 60 * 60 * 24);
+    
+    // 期待進捗率を計算
+    const expectedProgress = Math.min(100, Math.max(0, (elapsedDays / totalDays) * 100));
+    
+    // 遅延判定
+    const progressDifference = task.actualProgress - expectedProgress;
+    
+    if (task.actualProgress < 100 && today > endDate) {
+        // 終了日を過ぎているが完了していない
+        task.delayStatus = 'delayed';
+        task.delayMessage = '終了予定日を過ぎています';
+    } else if (progressDifference < -15) {
+        // 期待進捗より15%以上遅れている
+        task.delayStatus = 'delayed';
+        task.delayMessage = `進捗が予定より${Math.abs(progressDifference).toFixed(1)}%遅れています`;
+    } else if (progressDifference < -5) {
+        // 期待進捗より5-15%遅れている
+        task.delayStatus = 'at_risk';
+        task.delayMessage = `遅延リスク: 進捗が予定より${Math.abs(progressDifference).toFixed(1)}%遅れています`;
+    } else {
+        task.delayStatus = 'on_schedule';
+        task.delayMessage = null;
+    }
+}
+
 // CSV出力エンドポイント
 app.get('/api/tasks/export/csv', (req, res) => {
     const data = loadData();
@@ -781,10 +1008,11 @@ app.get('/api/tasks/export/csv', (req, res) => {
     // CSVヘッダー
     const csvHeader = [
         'ID', 'プロジェクト名', 'タスク名', '説明', '担当者', '依頼者',
-        '開始日', '終了日', '予定工数', '実績工数', 'ステータス', '優先度',
-        '現在の承認レベル', '承認レベル1', '承認レベル2', '承認レベル3',
-        'レベル1コメント', 'レベル2コメント', 'レベル3コメント',
-        '承認書類', '承認日時', '申請日時'
+        '元の開始日', '元の終了日', '現在の開始日', '現在の終了日',
+        '予定工数', '実績工数', '計画進捗率', '実際進捗率',
+        'ステータス', '優先度', '遅延ステータス', '遅延メッセージ',
+        '連動タスクID', '承認状態', '承認書類', '承認日時', '申請日時',
+        'スケジュール変更回数', '進捗更新回数'
     ].join(',');
     
     // CSVデータ行
@@ -792,9 +1020,23 @@ app.get('/api/tasks/export/csv', (req, res) => {
         const project = data.projects.find(p => p.id === task.projectId);
         const assignee = data.members.find(m => m.id === task.assigneeId);
         const requester = data.members.find(m => m.id === task.requesterId);
-        const approver1 = data.members.find(m => m.id === task.approvalLevel1Id);
-        const approver2 = data.members.find(m => m.id === task.approvalLevel2Id);
-        const approver3 = data.members.find(m => m.id === task.approvalLevel3Id);
+        
+        // 承認状態を簡素化
+        let approvalStatus = '未承認';
+        if (task.status === 'approved') {
+            approvalStatus = '承認完了';
+        } else if (task.status === 'pending_approval') {
+            approvalStatus = '承認待ち';
+        } else if (task.status === 'rejected') {
+            approvalStatus = '却下';
+        }
+        
+        // 遅延ステータステキスト
+        const delayStatusText = {
+            'on_schedule': '予定通り',
+            'at_risk': '遅延リスク',
+            'delayed': '遅延中'
+        }[task.delayStatus] || task.delayStatus;
         
         return [
             task.id,
@@ -803,22 +1045,25 @@ app.get('/api/tasks/export/csv', (req, res) => {
             `"${task.description}"`,
             `"${assignee ? assignee.name : ''}"`,
             `"${requester ? requester.name : ''}"`,
+            task.originalStartDate || task.startDate,
+            task.originalEndDate || task.endDate,
             task.startDate,
             task.endDate,
             task.estimatedHours,
             task.actualHours,
+            task.plannedProgress || 0,
+            task.actualProgress || 0,
             getStatusTextForCSV(task.status),
             getPriorityTextForCSV(task.priority),
-            task.currentApprovalLevel || 1,
-            `"${approver1 ? approver1.name : ''}"`,
-            `"${approver2 ? approver2.name : ''}"`,
-            `"${approver3 ? approver3.name : ''}"`,
-            `"${task.approvalLevel1Notes || ''}"`,
-            `"${task.approvalLevel2Notes || ''}"`,
-            `"${task.approvalLevel3Notes || ''}"`,
+            delayStatusText,
+            `"${task.delayMessage || ''}"`,
+            `"${(task.linkedTasks || []).join(',')}"`,
+            approvalStatus,
             `"${task.approvalDocuments || ''}"`,
             task.approvedAt ? new Date(task.approvedAt).toLocaleDateString('ja-JP') : '',
-            task.submittedForApprovalAt ? new Date(task.submittedForApprovalAt).toLocaleDateString('ja-JP') : ''
+            task.submittedForApprovalAt ? new Date(task.submittedForApprovalAt).toLocaleDateString('ja-JP') : '',
+            (task.scheduleChangeHistory || []).length,
+            (task.progressHistory || []).length
         ].join(',');
     });
     
@@ -827,6 +1072,84 @@ app.get('/api/tasks/export/csv', (req, res) => {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="tasks_${new Date().toISOString().split('T')[0]}.csv"`);
     res.send('\uFEFF' + csvContent); // BOM付きでExcelで正常に表示
+});
+
+// 進捗履歴CSV出力
+app.get('/api/progress-history/export/csv', (req, res) => {
+    const data = loadData();
+    
+    // CSVヘッダー
+    const csvHeader = [
+        'タスクID', 'タスク名', '更新日時', '計画進捗率', '実際進捗率', 'コメント', '更新者'
+    ].join(',');
+    
+    // CSVデータ行
+    const csvRows = [];
+    data.tasks.forEach(task => {
+        if (task.progressHistory && task.progressHistory.length > 0) {
+            task.progressHistory.forEach(progress => {
+                csvRows.push([
+                    task.id,
+                    `"${task.name}"`,
+                    new Date(progress.timestamp).toLocaleString('ja-JP'),
+                    progress.plannedProgress,
+                    progress.actualProgress,
+                    `"${progress.notes || ''}"`,
+                    progress.updatedBy || ''
+                ].join(','));
+            });
+        }
+    });
+    
+    const csvContent = [csvHeader, ...csvRows].join('\n');
+    
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="progress_history_${new Date().toISOString().split('T')[0]}.csv"`);
+    res.send('\uFEFF' + csvContent);
+});
+
+// スケジュール変更履歴CSV出力
+app.get('/api/schedule-changes/export/csv', (req, res) => {
+    const data = loadData();
+    
+    // CSVヘッダー
+    const csvHeader = [
+        'タスクID', 'タスク名', '変更日時', '変更種別',
+        '旧開始日', '旧終了日', '新開始日', '新終了日',
+        '変更理由', '連動元タスクID'
+    ].join(',');
+    
+    // CSVデータ行
+    const csvRows = [];
+    data.tasks.forEach(task => {
+        if (task.scheduleChangeHistory && task.scheduleChangeHistory.length > 0) {
+            task.scheduleChangeHistory.forEach(change => {
+                const changeTypeText = {
+                    'manual_reschedule': '手動変更',
+                    'linked_task_adjustment': '連動タスク調整'
+                }[change.type] || change.type;
+                
+                csvRows.push([
+                    task.id,
+                    `"${task.name}"`,
+                    new Date(change.timestamp).toLocaleString('ja-JP'),
+                    changeTypeText,
+                    change.oldStartDate,
+                    change.oldEndDate,
+                    change.newStartDate,
+                    change.newEndDate,
+                    `"${change.reason || ''}"`,
+                    change.sourceTaskId || ''
+                ].join(','));
+            });
+        }
+    });
+    
+    const csvContent = [csvHeader, ...csvRows].join('\n');
+    
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="schedule_changes_${new Date().toISOString().split('T')[0]}.csv"`);
+    res.send('\uFEFF' + csvContent);
 });
 
 function getStatusTextForCSV(status) {

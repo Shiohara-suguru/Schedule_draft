@@ -202,9 +202,17 @@
                             <option value="medium">中</option>
                             <option value="low">低</option>
                         </select>
-                        <button id="export-csv-btn" class="btn btn-secondary">
-                            <i class="fas fa-download"></i> CSV出力
-                        </button>
+                        <div class="csv-export-group">
+                            <button id="export-csv-btn" class="btn btn-secondary">
+                                <i class="fas fa-download"></i> タスク一覧CSV
+                            </button>
+                            <button id="export-progress-history-btn" class="btn btn-secondary">
+                                <i class="fas fa-history"></i> 進捗履歴CSV
+                            </button>
+                            <button id="export-schedule-changes-btn" class="btn btn-secondary">
+                                <i class="fas fa-calendar-alt"></i> 日程変更CSV
+                            </button>
+                        </div>
                     </div>
                     
                     <div class="table-container">
@@ -214,13 +222,12 @@
                                     <th>タスク名</th>
                                     <th>プロジェクト</th>
                                     <th>担当者</th>
-                                    <th>依頼者</th>
-                                    <th>承認レベル</th>
-                                    <th>現在の承認者</th>
+                                    <th>進捗率</th>
                                     <th>開始日</th>
                                     <th>終了日</th>
-                                    <th>工数</th>
                                     <th>ステータス</th>
+                                    <th>遅延状態</th>
+                                    <th>承認状態</th>
                                     <th>優先度</th>
                                     <th>操作</th>
                                 </tr>
@@ -446,6 +453,25 @@
                         <label for="task-approval-documents">承認に必要な資料リンク（OneDrive等）</label>
                         <input type="url" id="task-approval-documents" placeholder="https://contoso-my.sharepoint.com/:f:/g/personal/user_contoso_com/...">
                         <small class="form-hint">OneDrive、SharePoint等のリンクを入力してください</small>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="task-planned-progress">計画進捗率（%）</label>
+                            <input type="number" id="task-planned-progress" min="0" max="100" step="1" value="0">
+                        </div>
+                        <div class="form-group">
+                            <label for="task-actual-progress">実際進捗率（%）</label>
+                            <input type="number" id="task-actual-progress" min="0" max="100" step="1" value="0">
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="task-linked-tasks">連動タスク</label>
+                        <select id="task-linked-tasks" multiple>
+                            <option value="">連動するタスクを選択</option>
+                        </select>
+                        <small class="form-hint">このタスクが遅延した場合に影響を受けるタスクを選択</small>
                     </div>
                     <div id="workload-warning" class="workload-warning" style="display: none;">
                         <i class="fas fa-exclamation-triangle"></i>
@@ -682,6 +708,106 @@
                             <i class="fas fa-paper-plane"></i> 承認申請
                         </button>
                         <button type="button" class="btn btn-secondary" onclick="closeSubmitApprovalModal()">
+                            <i class="fas fa-times"></i> キャンセル
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 進捗更新モーダル -->
+    <div id="progress-update-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-chart-line"></i> 進捗更新</h3>
+                <button class="modal-close" onclick="closeProgressUpdateModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="progress-task-info" class="task-info">
+                    <!-- タスク情報がここに表示されます -->
+                </div>
+                <form id="progress-update-form">
+                    <input type="hidden" id="progress-task-id">
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="progress-planned">計画進捗率（%）</label>
+                            <input type="number" id="progress-planned" min="0" max="100" step="1" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="progress-actual">実際進捗率（%）</label>
+                            <input type="number" id="progress-actual" min="0" max="100" step="1" required>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="progress-notes">コメント</label>
+                        <textarea id="progress-notes" rows="3" placeholder="進捗に関するコメントを入力"></textarea>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> 更新
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="closeProgressUpdateModal()">
+                            <i class="fas fa-times"></i> キャンセル
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- スケジュール変更モーダル -->
+    <div id="reschedule-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-calendar-alt"></i> スケジュール変更</h3>
+                <button class="modal-close" onclick="closeRescheduleModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="reschedule-task-info" class="task-info">
+                    <!-- タスク情報がここに表示されます -->
+                </div>
+                
+                <div id="linked-tasks-warning" class="warning-message" style="display: none;">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <span>このタスクには連動タスクがあります。</span>
+                </div>
+                
+                <form id="reschedule-form">
+                    <input type="hidden" id="reschedule-task-id">
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="reschedule-start-date">新しい開始日</label>
+                            <input type="date" id="reschedule-start-date" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="reschedule-end-date">新しい終了日</label>
+                            <input type="date" id="reschedule-end-date" required>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="reschedule-reason">変更理由</label>
+                        <textarea id="reschedule-reason" rows="3" placeholder="スケジュール変更の理由を入力" required></textarea>
+                    </div>
+                    
+                    <div id="linked-tasks-options" class="form-group" style="display: none;">
+                        <label>
+                            <input type="checkbox" id="update-linked-tasks">
+                            連動タスクのスケジュールも同時に更新する
+                        </label>
+                        <small class="form-hint">チェックした場合、連動タスクの日程も自動的に調整されます</small>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> スケジュール変更
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="closeRescheduleModal()">
                             <i class="fas fa-times"></i> キャンセル
                         </button>
                     </div>

@@ -142,12 +142,31 @@ function setupEventListeners() {
     const submitApprovalForm = document.getElementById('submit-approval-form');
     const approvalForm = document.getElementById('approval-form');
     const exportCsvBtn = document.getElementById('export-csv-btn');
+    const exportProgressHistoryBtn = document.getElementById('export-progress-history-btn');
+    const exportScheduleChangesBtn = document.getElementById('export-schedule-changes-btn');
     
     if (submitApprovalForm) {
         submitApprovalForm.addEventListener('submit', handleSubmitApprovalSubmit);
     }
     if (exportCsvBtn) {
         exportCsvBtn.addEventListener('click', exportTasksToCSV);
+    }
+    if (exportProgressHistoryBtn) {
+        exportProgressHistoryBtn.addEventListener('click', exportProgressHistoryToCSV);
+    }
+    if (exportScheduleChangesBtn) {
+        exportScheduleChangesBtn.addEventListener('click', exportScheduleChangesToCSV);
+    }
+    
+    // 進捗管理関連
+    const progressUpdateForm = document.getElementById('progress-update-form');
+    const rescheduleForm = document.getElementById('reschedule-form');
+    
+    if (progressUpdateForm) {
+        progressUpdateForm.addEventListener('submit', handleProgressUpdate);
+    }
+    if (rescheduleForm) {
+        rescheduleForm.addEventListener('submit', handleReschedule);
     }
     
     // ガントチャート関連
@@ -882,73 +901,105 @@ function updateTasksList() {
     if (priorityFilter) filteredTasks = filteredTasks.filter(t => t.priority === priorityFilter);
     
     if (filteredTasks.length === 0) {
-        tasksBody.innerHTML = '<tr><td colspan="12" style="text-align: center; padding: 2rem; color: #64748b;">表示するタスクがありません</td></tr>';
+        tasksBody.innerHTML = '<tr><td colspan="11" style="text-align: center; padding: 2rem; color: #64748b;">表示するタスクがありません</td></tr>';
         return;
     }
     
     tasksBody.innerHTML = filteredTasks.map(task => {
         const member = currentData.members.find(m => m.id == task.assigneeId);
-        const requester = currentData.members.find(m => m.id == task.requesterId);
         const project = currentData.projects.find(p => p.id == task.projectId);
         
-        // 現在の承認レベルと承認者を取得
-        const currentLevel = task.currentApprovalLevel || 1;
-        const currentApproverId = task[`approvalLevel${currentLevel}Id`];
-        const currentApprover = currentApproverId ? currentData.members.find(m => m.id == currentApproverId) : null;
+        // 遅延状態表示
+        const delayStatusDisplay = {
+            'on_schedule': '<span class="delay-status on-schedule">予定通り</span>',
+            'at_risk': '<span class="delay-status at-risk">遅延リスク</span>',
+            'delayed': '<span class="delay-status delayed">遅延中</span>'
+        }[task.delayStatus || 'on_schedule'] || task.delayStatus;
         
-        // 承認レベル表示
-        let approvalLevelDisplay = '';
-        if (task.maxApprovalLevel > 1) {
-            approvalLevelDisplay = `${currentLevel}/${task.maxApprovalLevel}`;
+        // 承認状態表示（簡素化）
+        let approvalStatusDisplay = '未承認';
+        if (task.status === 'approved') {
+            approvalStatusDisplay = '<span class="approval-status approved">承認完了</span>';
+        } else if (task.status === 'pending_approval') {
+            approvalStatusDisplay = '<span class="approval-status pending">承認待ち</span>';
+        } else if (task.status === 'rejected') {
+            approvalStatusDisplay = '<span class="approval-status rejected">却下</span>';
         } else {
-            approvalLevelDisplay = currentLevel.toString();
+            approvalStatusDisplay = '<span class="approval-status none">未承認</span>';
         }
         
-        // 承認関連のアクションボタンを生成
-        let approvalActions = '';
+        // 進捗率表示
+        const plannedProgress = task.plannedProgress || 0;
+        const actualProgress = task.actualProgress || 0;
+        const progressDisplay = `<div class="progress-display"><span class="planned">計画: ${plannedProgress}%</span><br><span class="actual">実際: ${actualProgress}%</span></div>`;
+        
+        // アクションボタンを生成
+        let actionButtons = `
+            <button class="btn btn-small btn-secondary" onclick="editTask(${task.id})" title="編集">
+                <i class="fas fa-edit"></i>
+            </button>
+            <button class="btn btn-small btn-info" onclick="openProgressUpdateModal(${task.id})" title="進捗更新">
+                <i class="fas fa-chart-line"></i>
+            </button>
+        `;
+        
+        if (task.delayStatus === 'delayed' || task.delayStatus === 'at_risk') {
+            actionButtons += `
+                <button class="btn btn-small btn-warning" onclick="openRescheduleModal(${task.id})" title="スケジュール変更">
+                    <i class="fas fa-calendar-alt"></i>
+                </button>
+            `;
+        }
+        
+        // 承認関連のアクションボタン
+        const currentLevel = task.currentApprovalLevel || 1;
+        const currentApproverId = task[`approvalLevel${currentLevel}Id`];
+        
         if (task.status === 'completed' && currentApproverId) {
-            approvalActions = `
+            actionButtons += `
                 <button class="btn btn-small btn-primary" onclick="openSubmitApprovalModal(${task.id})" title="承認申請">
                     <i class="fas fa-paper-plane"></i>
                 </button>
             `;
         } else if (task.status === 'pending_approval' && currentApproverId) {
-            approvalActions = `
-                <button class="btn btn-small btn-success" onclick="openHierarchicalApprovalModal(${task.id})" title="階層承認処理">
+            actionButtons += `
+                <button class="btn btn-small btn-success" onclick="openHierarchicalApprovalModal(${task.id})" title="承認処理">
                     <i class="fas fa-check-circle"></i>
                 </button>
             `;
         }
         
+        actionButtons += `
+            <button class="btn btn-small btn-danger" onclick="deleteTask(${task.id})" title="削除">
+                <i class="fas fa-trash"></i>
+            </button>
+        `;
+        
         return `
-            <tr>
-                <td>${task.name}</td>
+            <tr class="${task.delayStatus === 'delayed' ? 'delayed-task' : task.delayStatus === 'at_risk' ? 'at-risk-task' : ''}">
+                <td>
+                    <div class="task-name">${task.name}</div>
+                    ${task.delayMessage ? `<small class="delay-message">${task.delayMessage}</small>` : ''}
+                </td>
                 <td>${project ? project.name : 'Unknown'}</td>
                 <td>${member ? member.name : 'Unknown'}</td>
-                <td>${requester ? requester.name : '-'}</td>
-                <td>${approvalLevelDisplay}</td>
-                <td>${currentApprover ? currentApprover.name : '-'}</td>
+                <td>${progressDisplay}</td>
                 <td>${moment(task.startDate).format('YYYY/MM/DD')}</td>
                 <td>${moment(task.endDate).format('YYYY/MM/DD')}</td>
-                <td>${task.estimatedHours}h</td>
                 <td>
                     <span class="status-badge status-${task.status}">
                         ${getStatusText(task.status)}
                     </span>
                 </td>
+                <td>${delayStatusDisplay}</td>
+                <td>${approvalStatusDisplay}</td>
                 <td>
                     <span class="status-badge priority-${task.priority}">
                         ${getPriorityText(task.priority)}
                     </span>
                 </td>
-                <td>
-                    <button class="btn btn-small btn-secondary" onclick="editTask(${task.id})">
-                        <i class="fas fa-edit"></i>
-                    </button>
-                    <button class="btn btn-small btn-danger" onclick="deleteTask(${task.id})">
-                        <i class="fas fa-trash"></i>
-                    </button>
-                    ${approvalActions}
+                <td class="action-buttons">
+                    ${actionButtons}
                 </td>
             </tr>
         `;
@@ -1257,11 +1308,21 @@ function openTaskModal(taskId = null) {
             document.getElementById('task-requester').value = requesterId || '';
             document.getElementById('task-approval-level-1').value = approvalLevel1Id || '';
             document.getElementById('task-approval-documents').value = task.approvalDocuments || '';
+            document.getElementById('task-planned-progress').value = task.plannedProgress || 0;
+            document.getElementById('task-actual-progress').value = task.actualProgress || 0;
+            
+            // 連動タスクの設定
+            updateLinkedTasksSelect(taskId);
         }
     } else {
         title.textContent = 'タスク追加';
         form.reset();
         document.getElementById('task-id').value = '';
+        document.getElementById('task-planned-progress').value = 0;
+        document.getElementById('task-actual-progress').value = 0;
+        
+        // 連動タスクの設定
+        updateLinkedTasksSelect();
     }
     
     modal.classList.add('show');
@@ -1290,7 +1351,10 @@ async function handleTaskSubmit(event) {
         requesterId: document.getElementById('task-requester').value || null,
         approverId: document.getElementById('task-approval-level-1').value || null, // 互換性のため保持
         approvalLevel1Id: document.getElementById('task-approval-level-1').value || null,
-        approvalDocuments: document.getElementById('task-approval-documents').value || null
+        approvalDocuments: document.getElementById('task-approval-documents').value || null,
+        plannedProgress: parseInt(document.getElementById('task-planned-progress').value) || 0,
+        actualProgress: parseInt(document.getElementById('task-actual-progress').value) || 0,
+        linkedTasks: getSelectedLinkedTasks()
     };
     
     const url = taskId ? `/api/tasks/${taskId}` : '/api/tasks';
@@ -1678,6 +1742,16 @@ window.closeHierarchicalApprovalModal = closeHierarchicalApprovalModal;
 window.submitHierarchicalApproval = submitHierarchicalApproval;
 window.toggleHigherLevelSelection = toggleHigherLevelSelection;
 
+// 進捗管理関連の関数をグローバルに公開
+window.openProgressUpdateModal = openProgressUpdateModal;
+window.closeProgressUpdateModal = closeProgressUpdateModal;
+window.handleProgressUpdate = handleProgressUpdate;
+window.openRescheduleModal = openRescheduleModal;
+window.closeRescheduleModal = closeRescheduleModal;
+window.handleReschedule = handleReschedule;
+window.exportProgressHistoryToCSV = exportProgressHistoryToCSV;
+window.exportScheduleChangesToCSV = exportScheduleChangesToCSV;
+
 // 承認申請モーダル
 function openSubmitApprovalModal(taskId) {
     const task = currentData.tasks.find(t => t.id === taskId);
@@ -2026,4 +2100,325 @@ async function submitHierarchicalApproval(action) {
     } finally {
         showLoading(false);
     }
+}
+
+// 進捗更新モーダル
+function openProgressUpdateModal(taskId) {
+    const task = currentData.tasks.find(t => t.id === taskId);
+    if (!task) return;
+    
+    const modal = document.getElementById('progress-update-modal');
+    const taskInfo = document.getElementById('progress-task-info');
+    const member = currentData.members.find(m => m.id === task.assigneeId);
+    const project = currentData.projects.find(p => p.id === task.projectId);
+    
+    document.getElementById('progress-task-id').value = taskId;
+    document.getElementById('progress-planned').value = task.plannedProgress || 0;
+    document.getElementById('progress-actual').value = task.actualProgress || 0;
+    document.getElementById('progress-notes').value = '';
+    
+    // 遅延状態の表示
+    const delayStatusText = {
+        'on_schedule': '予定通り',
+        'at_risk': '遅延リスク',
+        'delayed': '遅延中'
+    }[task.delayStatus || 'on_schedule'];
+    
+    taskInfo.innerHTML = `
+        <div class="task-info">
+            <h4><i class="fas fa-tasks"></i> ${task.name}</h4>
+            <div class="task-details">
+                <p><strong>プロジェクト:</strong> ${project ? project.name : 'Unknown'}</p>
+                <p><strong>担当者:</strong> ${member ? member.name : 'Unknown'}</p>
+                <p><strong>期間:</strong> ${moment(task.startDate).format('YYYY/MM/DD')} - ${moment(task.endDate).format('YYYY/MM/DD')}</p>
+                <p><strong>現在の遅延状態:</strong> <span class="delay-status ${task.delayStatus || 'on_schedule'}">${delayStatusText}</span></p>
+                ${task.delayMessage ? `<p><strong>遅延理由:</strong> ${task.delayMessage}</p>` : ''}
+                <p><strong>現在の進捗:</strong> 計画 ${task.plannedProgress || 0}% / 実際 ${task.actualProgress || 0}%</p>
+            </div>
+        </div>
+    `;
+    
+    modal.classList.add('show');
+}
+
+function closeProgressUpdateModal() {
+    const modal = document.getElementById('progress-update-modal');
+    modal.classList.remove('show');
+}
+
+async function handleProgressUpdate(event) {
+    event.preventDefault();
+    
+    const taskId = document.getElementById('progress-task-id').value;
+    const plannedProgress = parseInt(document.getElementById('progress-planned').value);
+    const actualProgress = parseInt(document.getElementById('progress-actual').value);
+    const notes = document.getElementById('progress-notes').value;
+    
+    if (plannedProgress < 0 || plannedProgress > 100 || actualProgress < 0 || actualProgress > 100) {
+        showNotification('進捗率は0から100の間で入力してください', 'error');
+        return;
+    }
+    
+    showLoading(true);
+    try {
+        const response = await fetch(`/api/tasks/${taskId}/update-progress`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                plannedProgress: plannedProgress,
+                actualProgress: actualProgress,
+                notes: notes
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            let message = '進捗を更新しました';
+            if (result.delayDetected) {
+                message += '。遅延が検出されました。';
+            }
+            
+            showNotification(message, 'success');
+            closeProgressUpdateModal();
+            await loadAllData();
+            updateTasksList();
+            updateDashboard();
+        } else {
+            throw new Error(result.error || '進捗更新に失敗しました');
+        }
+    } catch (error) {
+        console.error('進捗更新エラー:', error);
+        showNotification('進捗更新に失敗しました', 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+// スケジュール変更モーダル
+function openRescheduleModal(taskId) {
+    const task = currentData.tasks.find(t => t.id === taskId);
+    if (!task) return;
+    
+    const modal = document.getElementById('reschedule-modal');
+    const taskInfo = document.getElementById('reschedule-task-info');
+    const linkedTasksWarning = document.getElementById('linked-tasks-warning');
+    const linkedTasksOptions = document.getElementById('linked-tasks-options');
+    const member = currentData.members.find(m => m.id === task.assigneeId);
+    const project = currentData.projects.find(p => p.id === task.projectId);
+    
+    document.getElementById('reschedule-task-id').value = taskId;
+    document.getElementById('reschedule-start-date').value = task.startDate;
+    document.getElementById('reschedule-end-date').value = task.endDate;
+    document.getElementById('reschedule-reason').value = '';
+    document.getElementById('update-linked-tasks').checked = false;
+    
+    // 連動タスクの確認
+    const hasLinkedTasks = task.linkedTasks && task.linkedTasks.length > 0;
+    if (hasLinkedTasks) {
+        linkedTasksWarning.style.display = 'block';
+        linkedTasksOptions.style.display = 'block';
+        
+        const linkedTaskNames = task.linkedTasks.map(linkedId => {
+            const linkedTask = currentData.tasks.find(t => t.id === linkedId);
+            return linkedTask ? linkedTask.name : 'Unknown';
+        }).join(', ');
+        
+        linkedTasksWarning.innerHTML = `
+            <i class="fas fa-exclamation-triangle"></i>
+            <span>このタスクには連動タスクがあります: ${linkedTaskNames}</span>
+        `;
+    } else {
+        linkedTasksWarning.style.display = 'none';
+        linkedTasksOptions.style.display = 'none';
+    }
+    
+    taskInfo.innerHTML = `
+        <div class="task-info">
+            <h4><i class="fas fa-tasks"></i> ${task.name}</h4>
+            <div class="task-details">
+                <p><strong>プロジェクト:</strong> ${project ? project.name : 'Unknown'}</p>
+                <p><strong>担当者:</strong> ${member ? member.name : 'Unknown'}</p>
+                <p><strong>現在の期間:</strong> ${moment(task.startDate).format('YYYY/MM/DD')} - ${moment(task.endDate).format('YYYY/MM/DD')}</p>
+                <p><strong>遅延状態:</strong> <span class="delay-status ${task.delayStatus || 'on_schedule'}">${{
+                    'on_schedule': '予定通り',
+                    'at_risk': '遅延リスク',
+                    'delayed': '遅延中'
+                }[task.delayStatus || 'on_schedule']}</span></p>
+                ${task.delayMessage ? `<p><strong>遅延理由:</strong> ${task.delayMessage}</p>` : ''}
+            </div>
+        </div>
+    `;
+    
+    modal.classList.add('show');
+}
+
+function closeRescheduleModal() {
+    const modal = document.getElementById('reschedule-modal');
+    modal.classList.remove('show');
+}
+
+async function handleReschedule(event) {
+    event.preventDefault();
+    
+    const taskId = document.getElementById('reschedule-task-id').value;
+    const newStartDate = document.getElementById('reschedule-start-date').value;
+    const newEndDate = document.getElementById('reschedule-end-date').value;
+    const reason = document.getElementById('reschedule-reason').value;
+    const updateLinkedTasks = document.getElementById('update-linked-tasks').checked;
+    
+    if (new Date(newStartDate) > new Date(newEndDate)) {
+        showNotification('開始日は終了日より前に設定してください', 'error');
+        return;
+    }
+    
+    if (!reason.trim()) {
+        showNotification('変更理由を入力してください', 'error');
+        return;
+    }
+    
+    const confirmMessage = updateLinkedTasks 
+        ? 'このタスクと連動タスクのスケジュールを変更しますか？'
+        : 'このタスクのスケジュールを変更しますか？';
+    
+    if (!confirm(confirmMessage)) return;
+    
+    showLoading(true);
+    try {
+        const endpoint = updateLinkedTasks 
+            ? `/api/tasks/${taskId}/reschedule-with-linked`
+            : `/api/tasks/${taskId}/reschedule`;
+            
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                newStartDate: newStartDate,
+                newEndDate: newEndDate,
+                reason: reason
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            let message = 'スケジュールを変更しました';
+            if (result.linkedTasksUpdated) {
+                message += `。連動タスク${result.updatedCount}件も同時に更新されました。`;
+            }
+            
+            showNotification(message, 'success');
+            closeRescheduleModal();
+            await loadAllData();
+            updateTasksList();
+            updateDashboard();
+            if (calendar) calendar.refetchEvents();
+        } else {
+            throw new Error(result.error || 'スケジュール変更に失敗しました');
+        }
+    } catch (error) {
+        console.error('スケジュール変更エラー:', error);
+        showNotification('スケジュール変更に失敗しました', 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+// 進捗履歴CSV出力
+async function exportProgressHistoryToCSV() {
+    try {
+        showLoading(true);
+        const response = await fetch('/api/export/progress-history');
+        
+        if (response.ok) {
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = `進捗履歴_${moment().format('YYYY-MM-DD')}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+            showNotification('進捗履歴CSVファイルをダウンロードしました', 'success');
+        } else {
+            throw new Error('進捗履歴CSV出力に失敗しました');
+        }
+    } catch (error) {
+        console.error('進捗履歴CSV出力エラー:', error);
+        showNotification('進捗履歴CSV出力に失敗しました', 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+// 日程変更履歴CSV出力
+async function exportScheduleChangesToCSV() {
+    try {
+        showLoading(true);
+        const response = await fetch('/api/export/schedule-changes');
+        
+        if (response.ok) {
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = `日程変更履歴_${moment().format('YYYY-MM-DD')}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+            showNotification('日程変更履歴CSVファイルをダウンロードしました', 'success');
+        } else {
+            throw new Error('日程変更履歴CSV出力に失敗しました');
+        }
+    } catch (error) {
+        console.error('日程変更履歴CSV出力エラー:', error);
+        showNotification('日程変更履歴CSV出力に失敗しました', 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+// 連動タスク管理関連のヘルパー関数
+function updateLinkedTasksSelect(currentTaskId = null) {
+    const select = document.getElementById('task-linked-tasks');
+    if (!select) return;
+    
+    // 既存のオプションをクリア
+    select.innerHTML = '';
+    
+    // 自分以外のタスクを選択肢として追加
+    currentData.tasks.forEach(task => {
+        if (currentTaskId && task.id == currentTaskId) return; // 自分自身は除外
+        
+        const option = document.createElement('option');
+        option.value = task.id;
+        option.textContent = `${task.name} (${task.startDate} - ${task.endDate})`;
+        select.appendChild(option);
+    });
+    
+    // 編集モードの場合、現在選択されている連動タスクを設定
+    if (currentTaskId) {
+        const currentTask = currentData.tasks.find(t => t.id == currentTaskId);
+        if (currentTask && currentTask.linkedTasks) {
+            Array.from(select.options).forEach(option => {
+                if (currentTask.linkedTasks.includes(parseInt(option.value))) {
+                    option.selected = true;
+                }
+            });
+        }
+    }
+}
+
+function getSelectedLinkedTasks() {
+    const select = document.getElementById('task-linked-tasks');
+    if (!select) return [];
+    
+    const selectedOptions = Array.from(select.selectedOptions);
+    return selectedOptions.map(option => parseInt(option.value));
 }
