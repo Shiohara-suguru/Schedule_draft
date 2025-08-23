@@ -2328,7 +2328,7 @@ async function handleReschedule(event) {
 async function exportProgressHistoryToCSV() {
     try {
         showLoading(true);
-        const response = await fetch('/api/export/progress-history');
+        const response = await fetch('/api/progress-history/export/csv');
         
         if (response.ok) {
             const blob = await response.blob();
@@ -2358,7 +2358,7 @@ async function exportProgressHistoryToCSV() {
 async function exportScheduleChangesToCSV() {
     try {
         showLoading(true);
-        const response = await fetch('/api/export/schedule-changes');
+        const response = await fetch('/api/schedule-changes/export/csv');
         
         if (response.ok) {
             const blob = await response.blob();

@@ -867,7 +867,8 @@ app.post('/api/tasks/:id/update-progress', (req, res) => {
 app.post('/api/tasks/:id/update-linked-tasks', (req, res) => {
     const data = loadData();
     const taskId = parseInt(req.params.id);
-    const { linkedTaskIds } = req.body;
+    const { linkedTaskIds, linkedTasks } = req.body;
+    const taskIdsToUpdate = linkedTaskIds || linkedTasks || [];
     
     const taskIndex = data.tasks.findIndex(t => t.id === taskId);
     if (taskIndex === -1) {
@@ -875,7 +876,7 @@ app.post('/api/tasks/:id/update-linked-tasks', (req, res) => {
     }
     
     // 連動タスクのIDが存在するかチェック
-    const validLinkedTaskIds = linkedTaskIds.filter(id => {
+    const validLinkedTaskIds = taskIdsToUpdate.filter(id => {
         return data.tasks.some(t => t.id === parseInt(id));
     });
     
