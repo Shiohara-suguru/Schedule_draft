@@ -212,12 +212,62 @@ function migrateTaskData(data) {
             task.approvedAt = null;
             updated = true;
         }
+        
+        // 階層承認関連フィールドを追加
+        if (!task.hasOwnProperty('currentApprovalLevel')) {
+            task.currentApprovalLevel = 1;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('maxApprovalLevel')) {
+            task.maxApprovalLevel = 1;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approvalLevel1Id')) {
+            task.approvalLevel1Id = task.approverId; // 既存の承認者をレベル1に移行
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approvalLevel2Id')) {
+            task.approvalLevel2Id = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approvalLevel3Id')) {
+            task.approvalLevel3Id = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approvalLevel1Notes')) {
+            task.approvalLevel1Notes = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approvalLevel2Notes')) {
+            task.approvalLevel2Notes = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approvalLevel3Notes')) {
+            task.approvalLevel3Notes = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approvalLevel1At')) {
+            task.approvalLevel1At = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approvalLevel2At')) {
+            task.approvalLevel2At = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approvalLevel3At')) {
+            task.approvalLevel3At = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approvalHistory')) {
+            task.approvalHistory = [];
+            updated = true;
+        }
     });
     
     // 更新があった場合はファイルに保存
     if (updated) {
         saveData(data);
-        console.log('タスクデータを承認機能対応に移行しました');
+        console.log('タスクデータを階層承認機能対応に移行しました');
     }
 }
 
@@ -479,7 +529,21 @@ app.post('/api/tasks', (req, res) => {
         approvalDocuments: approvalDocuments || '',
         approvalNotes: '',
         approvedAt: null,
-        submittedForApprovalAt: null
+        submittedForApprovalAt: null,
+        
+        // 階層承認関連フィールド
+        currentApprovalLevel: 1,
+        maxApprovalLevel: 1,
+        approvalLevel1Id: approverId ? parseInt(approverId) : null,
+        approvalLevel2Id: null,
+        approvalLevel3Id: null,
+        approvalLevel1Notes: null,
+        approvalLevel2Notes: null,
+        approvalLevel3Notes: null,
+        approvalLevel1At: null,
+        approvalLevel2At: null,
+        approvalLevel3At: null,
+        approvalHistory: []
     };
     
     data.tasks.push(newTask);
@@ -615,15 +679,112 @@ app.post('/api/tasks/:id/reject', (req, res) => {
     }
 });
 
+// 階層承認処理
+app.post('/api/tasks/:id/approve-with-level', (req, res) => {
+    const data = loadData();
+    const taskId = parseInt(req.params.id);
+    const { approvalNotes, needsHigherLevel, higherLevelApproverId } = req.body;
+    
+    const taskIndex = data.tasks.findIndex(t => t.id === taskId);
+    if (taskIndex === -1) {
+        return res.status(404).json({ error: 'タスクが見つかりません' });
+    }
+    
+    const task = data.tasks[taskIndex];
+    const currentLevel = task.currentApprovalLevel;
+    const currentTime = new Date().toISOString();
+    
+    // 現在のレベルの承認情報を記録
+    task[`approvalLevel${currentLevel}Notes`] = approvalNotes || '';
+    task[`approvalLevel${currentLevel}At`] = currentTime;
+    
+    // 承認履歴に追加
+    task.approvalHistory.push({
+        level: currentLevel,
+        approverId: task[`approvalLevel${currentLevel}Id`],
+        action: needsHigherLevel ? 'approved_with_escalation' : 'approved_final',
+        notes: approvalNotes || '',
+        timestamp: currentTime
+    });
+    
+    if (needsHigherLevel && higherLevelApproverId && currentLevel < 3) {
+        // より高いレベルの承認が必要な場合
+        const nextLevel = currentLevel + 1;
+        task.currentApprovalLevel = nextLevel;
+        task.maxApprovalLevel = Math.max(task.maxApprovalLevel, nextLevel);
+        task[`approvalLevel${nextLevel}Id`] = parseInt(higherLevelApproverId);
+        task.status = 'pending_approval';
+        
+        // 自動的に承認依頼を生成
+        task.approvalHistory.push({
+            level: nextLevel,
+            approverId: parseInt(higherLevelApproverId),
+            action: 'auto_submitted',
+            notes: `レベル${currentLevel}から自動エスカレーション`,
+            timestamp: currentTime
+        });
+    } else {
+        // 最終承認
+        task.status = 'approved';
+        task.approvedAt = currentTime;
+    }
+    
+    if (saveData(data)) {
+        res.json({ 
+            success: true, 
+            task: task,
+            escalated: needsHigherLevel && higherLevelApproverId && currentLevel < 3
+        });
+    } else {
+        res.status(500).json({ error: 'データの保存に失敗しました' });
+    }
+});
+
+app.post('/api/tasks/:id/reject-with-level', (req, res) => {
+    const data = loadData();
+    const taskId = parseInt(req.params.id);
+    const { approvalNotes } = req.body;
+    
+    const taskIndex = data.tasks.findIndex(t => t.id === taskId);
+    if (taskIndex === -1) {
+        return res.status(404).json({ error: 'タスクが見つかりません' });
+    }
+    
+    const task = data.tasks[taskIndex];
+    const currentLevel = task.currentApprovalLevel;
+    const currentTime = new Date().toISOString();
+    
+    // 却下情報を記録
+    task[`approvalLevel${currentLevel}Notes`] = approvalNotes || '';
+    task.status = 'rejected';
+    
+    // 承認履歴に追加
+    task.approvalHistory.push({
+        level: currentLevel,
+        approverId: task[`approvalLevel${currentLevel}Id`],
+        action: 'rejected',
+        notes: approvalNotes || '',
+        timestamp: currentTime
+    });
+    
+    if (saveData(data)) {
+        res.json({ success: true, task: task });
+    } else {
+        res.status(500).json({ error: 'データの保存に失敗しました' });
+    }
+});
+
 // CSV出力エンドポイント
 app.get('/api/tasks/export/csv', (req, res) => {
     const data = loadData();
     
     // CSVヘッダー
     const csvHeader = [
-        'ID', 'プロジェクト名', 'タスク名', '説明', '担当者', '依頼者', '承認者',
+        'ID', 'プロジェクト名', 'タスク名', '説明', '担当者', '依頼者',
         '開始日', '終了日', '予定工数', '実績工数', 'ステータス', '優先度',
-        '承認書類', '承認コメント', '承認日時', '申請日時'
+        '現在の承認レベル', '承認レベル1', '承認レベル2', '承認レベル3',
+        'レベル1コメント', 'レベル2コメント', 'レベル3コメント',
+        '承認書類', '承認日時', '申請日時'
     ].join(',');
     
     // CSVデータ行
@@ -631,7 +792,9 @@ app.get('/api/tasks/export/csv', (req, res) => {
         const project = data.projects.find(p => p.id === task.projectId);
         const assignee = data.members.find(m => m.id === task.assigneeId);
         const requester = data.members.find(m => m.id === task.requesterId);
-        const approver = data.members.find(m => m.id === task.approverId);
+        const approver1 = data.members.find(m => m.id === task.approvalLevel1Id);
+        const approver2 = data.members.find(m => m.id === task.approvalLevel2Id);
+        const approver3 = data.members.find(m => m.id === task.approvalLevel3Id);
         
         return [
             task.id,
@@ -640,15 +803,20 @@ app.get('/api/tasks/export/csv', (req, res) => {
             `"${task.description}"`,
             `"${assignee ? assignee.name : ''}"`,
             `"${requester ? requester.name : ''}"`,
-            `"${approver ? approver.name : ''}"`,
             task.startDate,
             task.endDate,
             task.estimatedHours,
             task.actualHours,
             getStatusTextForCSV(task.status),
             getPriorityTextForCSV(task.priority),
+            task.currentApprovalLevel || 1,
+            `"${approver1 ? approver1.name : ''}"`,
+            `"${approver2 ? approver2.name : ''}"`,
+            `"${approver3 ? approver3.name : ''}"`,
+            `"${task.approvalLevel1Notes || ''}"`,
+            `"${task.approvalLevel2Notes || ''}"`,
+            `"${task.approvalLevel3Notes || ''}"`,
             `"${task.approvalDocuments || ''}"`,
-            `"${task.approvalNotes || ''}"`,
             task.approvedAt ? new Date(task.approvedAt).toLocaleDateString('ja-JP') : '',
             task.submittedForApprovalAt ? new Date(task.submittedForApprovalAt).toLocaleDateString('ja-JP') : ''
         ].join(',');

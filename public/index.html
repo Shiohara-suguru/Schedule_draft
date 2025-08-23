@@ -215,7 +215,8 @@
                                     <th>プロジェクト</th>
                                     <th>担当者</th>
                                     <th>依頼者</th>
-                                    <th>承認者</th>
+                                    <th>承認レベル</th>
+                                    <th>現在の承認者</th>
                                     <th>開始日</th>
                                     <th>終了日</th>
                                     <th>工数</th>
@@ -404,9 +405,9 @@
                             </select>
                         </div>
                         <div class="form-group">
-                            <label for="task-approver">承認者（確認者）</label>
-                            <select id="task-approver">
-                                <option value="">承認者を選択</option>
+                            <label for="task-approval-level-1">承認レベル1承認者</label>
+                            <select id="task-approval-level-1">
+                                <option value="">レベル1承認者を選択</option>
                             </select>
                         </div>
                     </div>
@@ -560,6 +561,59 @@
     <!-- ローディング表示 -->
     <div id="loading" class="loading">
         <div class="loading-spinner"></div>
+    </div>
+
+    <!-- 階層承認アクションモーダル -->
+    <div id="hierarchical-approval-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-check-circle"></i> <span id="hierarchical-approval-modal-title">階層承認処理</span></h3>
+                <button class="modal-close" onclick="closeHierarchicalApprovalModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="hierarchical-approval-task-info" class="approval-info">
+                    <!-- タスク情報がここに表示されます -->
+                </div>
+                
+                <form id="hierarchical-approval-form">
+                    <input type="hidden" id="hierarchical-approval-task-id">
+                    
+                    <div class="form-group">
+                        <label for="hierarchical-approval-notes">承認コメント</label>
+                        <textarea id="hierarchical-approval-notes" rows="3" placeholder="承認理由やコメントを入力してください"></textarea>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="needs-higher-level" onchange="toggleHigherLevelSelection()">
+                                さらに上位レベルの承認が必要
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div id="higher-level-selection" class="form-group" style="display: none;">
+                        <label for="higher-level-approver">上位レベル承認者を選択</label>
+                        <select id="higher-level-approver">
+                            <option value="">承認者を選択してください</option>
+                        </select>
+                        <small class="form-hint">選択した承認者に自動で承認依頼が送信されます</small>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="button" id="hierarchical-approve-btn" class="btn btn-success" onclick="submitHierarchicalApproval('approve')">
+                            <i class="fas fa-check"></i> 承認
+                        </button>
+                        <button type="button" id="hierarchical-reject-btn" class="btn btn-danger" onclick="submitHierarchicalApproval('reject')">
+                            <i class="fas fa-times"></i> 却下
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="closeHierarchicalApprovalModal()">
+                            <i class="fas fa-times"></i> キャンセル
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
     </div>
 
     <!-- 承認アクションモーダル -->

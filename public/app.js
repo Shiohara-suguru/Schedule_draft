@@ -401,7 +401,7 @@ function updateSelects() {
     // メンバーセレクトの更新
     updateSelect('task-assignee', currentData.members, 'name', '担当者を選択');
     updateSelect('task-requester', currentData.members, 'name', '依頼者を選択');
-    updateSelect('task-approver', currentData.members, 'name', '承認者を選択');
+    updateSelect('task-approval-level-1', currentData.members, 'name', 'レベル1承認者を選択');
     updateSelect('task-member-filter', currentData.members, 'name', 'すべてのメンバー');
     updateSelect('gantt-member-filter', currentData.members, 'name', 'すべてのメンバー');
     updateSelect('workload-member-filter', currentData.members, 'name', 'すべてのメンバー');
@@ -882,27 +882,39 @@ function updateTasksList() {
     if (priorityFilter) filteredTasks = filteredTasks.filter(t => t.priority === priorityFilter);
     
     if (filteredTasks.length === 0) {
-        tasksBody.innerHTML = '<tr><td colspan="11" style="text-align: center; padding: 2rem; color: #64748b;">表示するタスクがありません</td></tr>';
+        tasksBody.innerHTML = '<tr><td colspan="12" style="text-align: center; padding: 2rem; color: #64748b;">表示するタスクがありません</td></tr>';
         return;
     }
     
     tasksBody.innerHTML = filteredTasks.map(task => {
         const member = currentData.members.find(m => m.id == task.assigneeId);
         const requester = currentData.members.find(m => m.id == task.requesterId);
-        const approver = currentData.members.find(m => m.id == task.approverId);
         const project = currentData.projects.find(p => p.id == task.projectId);
+        
+        // 現在の承認レベルと承認者を取得
+        const currentLevel = task.currentApprovalLevel || 1;
+        const currentApproverId = task[`approvalLevel${currentLevel}Id`];
+        const currentApprover = currentApproverId ? currentData.members.find(m => m.id == currentApproverId) : null;
+        
+        // 承認レベル表示
+        let approvalLevelDisplay = '';
+        if (task.maxApprovalLevel > 1) {
+            approvalLevelDisplay = `${currentLevel}/${task.maxApprovalLevel}`;
+        } else {
+            approvalLevelDisplay = currentLevel.toString();
+        }
         
         // 承認関連のアクションボタンを生成
         let approvalActions = '';
-        if (task.status === 'completed' && task.approverId) {
+        if (task.status === 'completed' && currentApproverId) {
             approvalActions = `
                 <button class="btn btn-small btn-primary" onclick="openSubmitApprovalModal(${task.id})" title="承認申請">
                     <i class="fas fa-paper-plane"></i>
                 </button>
             `;
-        } else if (task.status === 'pending_approval' && task.approverId) {
+        } else if (task.status === 'pending_approval' && currentApproverId) {
             approvalActions = `
-                <button class="btn btn-small btn-success" onclick="openApprovalModal(${task.id})" title="承認処理">
+                <button class="btn btn-small btn-success" onclick="openHierarchicalApprovalModal(${task.id})" title="階層承認処理">
                     <i class="fas fa-check-circle"></i>
                 </button>
             `;
@@ -914,7 +926,8 @@ function updateTasksList() {
                 <td>${project ? project.name : 'Unknown'}</td>
                 <td>${member ? member.name : 'Unknown'}</td>
                 <td>${requester ? requester.name : '-'}</td>
-                <td>${approver ? approver.name : '-'}</td>
+                <td>${approvalLevelDisplay}</td>
+                <td>${currentApprover ? currentApprover.name : '-'}</td>
                 <td>${moment(task.startDate).format('YYYY/MM/DD')}</td>
                 <td>${moment(task.endDate).format('YYYY/MM/DD')}</td>
                 <td>${task.estimatedHours}h</td>
@@ -1240,9 +1253,9 @@ function openTaskModal(taskId = null) {
             document.getElementById('task-priority').value = task.priority;
             document.getElementById('task-status').value = task.status;
             const requesterId = task.requesterId;
-            const approverId = task.approverId;
+            const approvalLevel1Id = task.approvalLevel1Id || task.approverId; // 既存データの互換性
             document.getElementById('task-requester').value = requesterId || '';
-            document.getElementById('task-approver').value = approverId || '';
+            document.getElementById('task-approval-level-1').value = approvalLevel1Id || '';
             document.getElementById('task-approval-documents').value = task.approvalDocuments || '';
         }
     } else {
@@ -1275,7 +1288,8 @@ async function handleTaskSubmit(event) {
         priority: document.getElementById('task-priority').value,
         status: document.getElementById('task-status').value,
         requesterId: document.getElementById('task-requester').value || null,
-        approverId: document.getElementById('task-approver').value || null,
+        approverId: document.getElementById('task-approval-level-1').value || null, // 互換性のため保持
+        approvalLevel1Id: document.getElementById('task-approval-level-1').value || null,
         approvalDocuments: document.getElementById('task-approval-documents').value || null
     };
     
@@ -1658,6 +1672,12 @@ window.openApprovalModal = openApprovalModal;
 window.closeApprovalModal = closeApprovalModal;
 window.submitApproval = submitApproval;
 
+// 階層承認関連の関数をグローバルに公開
+window.openHierarchicalApprovalModal = openHierarchicalApprovalModal;
+window.closeHierarchicalApprovalModal = closeHierarchicalApprovalModal;
+window.submitHierarchicalApproval = submitHierarchicalApproval;
+window.toggleHigherLevelSelection = toggleHigherLevelSelection;
+
 // 承認申請モーダル
 function openSubmitApprovalModal(taskId) {
     const task = currentData.tasks.find(t => t.id === taskId);
@@ -1832,6 +1852,177 @@ async function exportTasksToCSV() {
     } catch (error) {
         console.error('CSV出力エラー:', error);
         showNotification('CSV出力に失敗しました', 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+// 階層承認モーダル
+function openHierarchicalApprovalModal(taskId) {
+    const task = currentData.tasks.find(t => t.id === taskId);
+    if (!task) return;
+    
+    const modal = document.getElementById('hierarchical-approval-modal');
+    const taskInfo = document.getElementById('hierarchical-approval-task-info');
+    const member = currentData.members.find(m => m.id === task.assigneeId);
+    const requester = currentData.members.find(m => m.id === task.requesterId);
+    const project = currentData.projects.find(p => p.id === task.projectId);
+    
+    const currentLevel = task.currentApprovalLevel || 1;
+    const currentApproverId = task[`approvalLevel${currentLevel}Id`];
+    const currentApprover = currentApproverId ? currentData.members.find(m => m.id === currentApproverId) : null;
+    
+    document.getElementById('hierarchical-approval-task-id').value = taskId;
+    document.getElementById('hierarchical-approval-notes').value = '';
+    document.getElementById('needs-higher-level').checked = false;
+    document.getElementById('higher-level-selection').style.display = 'none';
+    
+    // 上位レベル承認者の選択肢を更新
+    updateHigherLevelApproverOptions();
+    
+    let documentsLink = '';
+    if (task.approvalDocuments) {
+        documentsLink = `<p><strong>資料リンク:</strong> <a href="${task.approvalDocuments}" target="_blank">資料を開く <i class="fas fa-external-link-alt"></i></a></p>`;
+    }
+    
+    // 承認履歴を表示
+    let approvalHistoryHtml = '';
+    if (task.approvalHistory && task.approvalHistory.length > 0) {
+        approvalHistoryHtml = '<div class="approval-history"><h5>承認履歴:</h5>';
+        task.approvalHistory.forEach(history => {
+            const historyApprover = currentData.members.find(m => m.id === history.approverId);
+            const actionText = {
+                'approved_with_escalation': '承認（エスカレーション）',
+                'approved_final': '最終承認',
+                'rejected': '却下',
+                'auto_submitted': '自動申請'
+            }[history.action] || history.action;
+            
+            approvalHistoryHtml += `
+                <div class="history-item">
+                    <strong>レベル${history.level}:</strong> ${historyApprover ? historyApprover.name : 'Unknown'} - ${actionText}<br>
+                    <small>${moment(history.timestamp).format('YYYY/MM/DD HH:mm')}: ${history.notes}</small>
+                </div>
+            `;
+        });
+        approvalHistoryHtml += '</div>';
+    }
+    
+    taskInfo.innerHTML = `
+        <div class="task-info">
+            <h4><i class="fas fa-tasks"></i> ${task.name}</h4>
+            <div class="task-details">
+                <p><strong>プロジェクト:</strong> ${project ? project.name : 'Unknown'}</p>
+                <p><strong>担当者:</strong> ${member ? member.name : 'Unknown'}</p>
+                <p><strong>依頼者:</strong> ${requester ? requester.name : 'Unknown'}</p>
+                <p><strong>現在の承認レベル:</strong> ${currentLevel}</p>
+                <p><strong>現在の承認者:</strong> ${currentApprover ? currentApprover.name : 'Unknown'}</p>
+                <p><strong>期間:</strong> ${moment(task.startDate).format('YYYY/MM/DD')} - ${moment(task.endDate).format('YYYY/MM/DD')}</p>
+                ${documentsLink}
+                ${approvalHistoryHtml}
+            </div>
+        </div>
+    `;
+    
+    modal.classList.add('show');
+}
+
+function closeHierarchicalApprovalModal() {
+    const modal = document.getElementById('hierarchical-approval-modal');
+    modal.classList.remove('show');
+}
+
+function toggleHigherLevelSelection() {
+    const checkbox = document.getElementById('needs-higher-level');
+    const selection = document.getElementById('higher-level-selection');
+    
+    if (checkbox.checked) {
+        selection.style.display = 'block';
+    } else {
+        selection.style.display = 'none';
+        document.getElementById('higher-level-approver').value = '';
+    }
+}
+
+function updateHigherLevelApproverOptions() {
+    const select = document.getElementById('higher-level-approver');
+    
+    // 既存のオプション（最初の選択肢以外）を削除
+    while (select.children.length > 1) {
+        select.removeChild(select.lastChild);
+    }
+    
+    // メンバーオプションを追加
+    currentData.members.forEach(member => {
+        const option = document.createElement('option');
+        option.value = member.id;
+        option.textContent = `${member.name} (${member.department})`;
+        select.appendChild(option);
+    });
+}
+
+async function submitHierarchicalApproval(action) {
+    const taskId = document.getElementById('hierarchical-approval-task-id').value;
+    const notes = document.getElementById('hierarchical-approval-notes').value;
+    const needsHigherLevel = document.getElementById('needs-higher-level').checked;
+    const higherLevelApproverId = document.getElementById('higher-level-approver').value;
+    
+    if (action === 'approve') {
+        if (needsHigherLevel && !higherLevelApproverId) {
+            showNotification('上位レベルの承認者を選択してください', 'error');
+            return;
+        }
+        
+        const confirmMessage = needsHigherLevel 
+            ? `このタスクを承認し、上位レベルにエスカレーションしますか？`
+            : `このタスクを最終承認しますか？`;
+            
+        if (!confirm(confirmMessage)) return;
+    } else {
+        if (!confirm('このタスクを却下しますか？')) return;
+    }
+    
+    showLoading(true);
+    try {
+        const endpoint = action === 'approve' ? 'approve-with-level' : 'reject-with-level';
+        const requestBody = {
+            approvalNotes: notes
+        };
+        
+        if (action === 'approve') {
+            requestBody.needsHigherLevel = needsHigherLevel;
+            if (needsHigherLevel && higherLevelApproverId) {
+                requestBody.higherLevelApproverId = higherLevelApproverId;
+            }
+        }
+        
+        const response = await fetch(`/api/tasks/${taskId}/${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody)
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            let message = action === 'approve' ? 'タスクを承認しました' : 'タスクを却下しました';
+            
+            if (result.escalated) {
+                const higherApprover = currentData.members.find(m => m.id == higherLevelApproverId);
+                message += `。${higherApprover ? higherApprover.name : '上位承認者'}に自動で承認依頼を送信しました。`;
+            }
+            
+            showNotification(message, 'success');
+            closeHierarchicalApprovalModal();
+            await loadAllData();
+            updateTasksList();
+            updateDashboard();
+        } else {
+            throw new Error(result.error || '階層承認処理に失敗しました');
+        }
+    } catch (error) {
+        console.error('階層承認処理エラー:', error);
+        showNotification('階層承認処理に失敗しました', 'error');
     } finally {
         showLoading(false);
     }
