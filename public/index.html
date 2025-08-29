@@ -118,6 +118,55 @@
                             <!-- ガントチャートがここに表示されます -->
                         </div>
                     </div>
+                    
+                    <!-- マイルストーン管理 -->
+                    <div class="milestone-management">
+                        <div class="milestone-controls">
+                            <h3><i class="fas fa-flag"></i> マイルストーン管理</h3>
+                            <button id="add-milestone-btn" class="btn btn-primary">
+                                <i class="fas fa-plus"></i> マイルストーン追加
+                            </button>
+                        </div>
+                        
+                        <div class="milestone-filter">
+                            <select id="milestone-type-filter" class="milestone-type-filter">
+                                <option value="">すべてのタイプ</option>
+                                <option value="delivery">📦 納品</option>
+                                <option value="report">📊 報告</option>
+                                <option value="review">👥 レビュー</option>
+                                <option value="meeting">🤝 会議</option>
+                                <option value="deadline">⏰ 締切</option>
+                            </select>
+                        </div>
+                        
+                        <div id="milestones-list" class="table-container">
+                            <!-- マイルストーンのリストがここに表示されます -->
+                        </div>
+                    </div>
+                    
+                    <!-- カレンダー統合 -->
+                    <div class="calendar-integration">
+                        <h3><i class="fas fa-calendar-alt"></i> カレンダー統合</h3>
+                        <p>プロジェクトのタスクとマイルストーンをGoogle CalendarやOutlookと同期できます。</p>
+                        
+                        <div class="calendar-export-options">
+                            <button id="export-ical-btn" class="btn btn-secondary">
+                                <i class="fas fa-download"></i> iCalファイル出力
+                            </button>
+                            <button id="copy-calendar-url-btn" class="btn btn-secondary">
+                                <i class="fas fa-copy"></i> カレンダーURL取得
+                            </button>
+                        </div>
+                        
+                        <div class="calendar-instructions" style="margin-top: 1rem; font-size: 0.9rem; color: #64748b;">
+                            <h4>連携方法:</h4>
+                            <ul style="margin-left: 2rem; line-height: 1.6;">
+                                <li><strong>Google Calendar:</strong> 「他のカレンダー」→「URL で追加」にカレンダーURLを貼り付け</li>
+                                <li><strong>Outlook:</strong> 「カレンダーを追加」→「インターネットから」にカレンダーURLを入力</li>
+                                <li><strong>その他:</strong> iCalファイルをダウンロードして各カレンダーアプリにインポート</li>
+                            </ul>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -202,9 +251,17 @@
                             <option value="medium">中</option>
                             <option value="low">低</option>
                         </select>
-                        <button id="export-csv-btn" class="btn btn-secondary">
-                            <i class="fas fa-download"></i> CSV出力
-                        </button>
+                        <div class="csv-export-group">
+                            <button id="export-csv-btn" class="btn btn-secondary">
+                                <i class="fas fa-download"></i> タスク一覧CSV
+                            </button>
+                            <button id="export-progress-history-btn" class="btn btn-secondary">
+                                <i class="fas fa-history"></i> 進捗履歴CSV
+                            </button>
+                            <button id="export-schedule-changes-btn" class="btn btn-secondary">
+                                <i class="fas fa-calendar-alt"></i> 日程変更CSV
+                            </button>
+                        </div>
                     </div>
                     
                     <div class="table-container">
@@ -214,12 +271,12 @@
                                     <th>タスク名</th>
                                     <th>プロジェクト</th>
                                     <th>担当者</th>
-                                    <th>依頼者</th>
-                                    <th>承認者</th>
+                                    <th>進捗率</th>
                                     <th>開始日</th>
                                     <th>終了日</th>
-                                    <th>工数</th>
                                     <th>ステータス</th>
+                                    <th>遅延状態</th>
+                                    <th>承認状態</th>
                                     <th>優先度</th>
                                     <th>操作</th>
                                 </tr>
@@ -404,9 +461,9 @@
                             </select>
                         </div>
                         <div class="form-group">
-                            <label for="task-approver">承認者（確認者）</label>
-                            <select id="task-approver">
-                                <option value="">承認者を選択</option>
+                            <label for="task-approval-level-1">承認レベル1承認者</label>
+                            <select id="task-approval-level-1">
+                                <option value="">レベル1承認者を選択</option>
                             </select>
                         </div>
                     </div>
@@ -445,6 +502,40 @@
                         <label for="task-approval-documents">承認に必要な資料リンク（OneDrive等）</label>
                         <input type="url" id="task-approval-documents" placeholder="https://contoso-my.sharepoint.com/:f:/g/personal/user_contoso_com/...">
                         <small class="form-hint">OneDrive、SharePoint等のリンクを入力してください</small>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="task-planned-progress">計画進捗率（%）</label>
+                            <input type="number" id="task-planned-progress" min="0" max="100" step="1" value="0">
+                        </div>
+                        <div class="form-group">
+                            <label for="task-actual-progress">実際進捗率（%）</label>
+                            <input type="number" id="task-actual-progress" min="0" max="100" step="1" value="0">
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="task-linked-tasks">連動タスク</label>
+                        <select id="task-linked-tasks" multiple>
+                            <option value="">連動するタスクを選択</option>
+                        </select>
+                        <small class="form-hint">このタスクが遅延した場合に影響を受けるタスクを選択</small>
+                    </div>
+                    
+                    <!-- 依存関係設定 -->
+                    <div class="dependency-input-group">
+                        <h4><i class="fas fa-link"></i> タスク依存関係</h4>
+                        <div id="predecessor-tasks-container">
+                            <!-- 先行タスクのリストがここに追加されます -->
+                        </div>
+                        <button type="button" class="add-predecessor" onclick="addPredecessorTask()">
+                            <i class="fas fa-plus"></i> 先行タスクを追加
+                        </button>
+                        <small class="form-hint">
+                            このタスクが開始する前に完了している必要があるタスクを設定します。<br>
+                            ラグ日数を設定すると「先行タスク完了 + XX日後」に開始できます。
+                        </small>
                     </div>
                     <div id="workload-warning" class="workload-warning" style="display: none;">
                         <i class="fas fa-exclamation-triangle"></i>
@@ -562,6 +653,59 @@
         <div class="loading-spinner"></div>
     </div>
 
+    <!-- 階層承認アクションモーダル -->
+    <div id="hierarchical-approval-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-check-circle"></i> <span id="hierarchical-approval-modal-title">階層承認処理</span></h3>
+                <button class="modal-close" onclick="closeHierarchicalApprovalModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="hierarchical-approval-task-info" class="approval-info">
+                    <!-- タスク情報がここに表示されます -->
+                </div>
+                
+                <form id="hierarchical-approval-form">
+                    <input type="hidden" id="hierarchical-approval-task-id">
+                    
+                    <div class="form-group">
+                        <label for="hierarchical-approval-notes">承認コメント</label>
+                        <textarea id="hierarchical-approval-notes" rows="3" placeholder="承認理由やコメントを入力してください"></textarea>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="needs-higher-level" onchange="toggleHigherLevelSelection()">
+                                さらに上位レベルの承認が必要
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div id="higher-level-selection" class="form-group" style="display: none;">
+                        <label for="higher-level-approver">上位レベル承認者を選択</label>
+                        <select id="higher-level-approver">
+                            <option value="">承認者を選択してください</option>
+                        </select>
+                        <small class="form-hint">選択した承認者に自動で承認依頼が送信されます</small>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="button" id="hierarchical-approve-btn" class="btn btn-success" onclick="submitHierarchicalApproval('approve')">
+                            <i class="fas fa-check"></i> 承認
+                        </button>
+                        <button type="button" id="hierarchical-reject-btn" class="btn btn-danger" onclick="submitHierarchicalApproval('reject')">
+                            <i class="fas fa-times"></i> 却下
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="closeHierarchicalApprovalModal()">
+                            <i class="fas fa-times"></i> キャンセル
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <!-- 承認アクションモーダル -->
     <div id="approval-modal" class="modal">
         <div class="modal-content">
@@ -628,6 +772,192 @@
                             <i class="fas fa-paper-plane"></i> 承認申請
                         </button>
                         <button type="button" class="btn btn-secondary" onclick="closeSubmitApprovalModal()">
+                            <i class="fas fa-times"></i> キャンセル
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 進捗更新モーダル -->
+    <div id="progress-update-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-chart-line"></i> 進捗更新</h3>
+                <button class="modal-close" onclick="closeProgressUpdateModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="progress-task-info" class="task-info">
+                    <!-- タスク情報がここに表示されます -->
+                </div>
+                <form id="progress-update-form">
+                    <input type="hidden" id="progress-task-id">
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="progress-planned">計画進捗率（%）</label>
+                            <input type="number" id="progress-planned" min="0" max="100" step="1" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="progress-actual">実際進捗率（%）</label>
+                            <input type="number" id="progress-actual" min="0" max="100" step="1" required>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="progress-notes">コメント</label>
+                        <textarea id="progress-notes" rows="3" placeholder="進捗に関するコメントを入力"></textarea>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> 更新
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="closeProgressUpdateModal()">
+                            <i class="fas fa-times"></i> キャンセル
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- スケジュール変更モーダル -->
+    <div id="reschedule-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-calendar-alt"></i> スケジュール変更</h3>
+                <button class="modal-close" onclick="closeRescheduleModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="reschedule-task-info" class="task-info">
+                    <!-- タスク情報がここに表示されます -->
+                </div>
+                
+                <div id="linked-tasks-warning" class="warning-message" style="display: none;">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <span>このタスクには連動タスクがあります。</span>
+                </div>
+                
+                <form id="reschedule-form">
+                    <input type="hidden" id="reschedule-task-id">
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="reschedule-start-date">新しい開始日</label>
+                            <input type="date" id="reschedule-start-date" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="reschedule-end-date">新しい終了日</label>
+                            <input type="date" id="reschedule-end-date" required>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="reschedule-reason">変更理由</label>
+                        <textarea id="reschedule-reason" rows="3" placeholder="スケジュール変更の理由を入力" required></textarea>
+                    </div>
+                    
+                    <div id="linked-tasks-options" class="form-group" style="display: none;">
+                        <label>
+                            <input type="checkbox" id="update-linked-tasks">
+                            連動タスクのスケジュールも同時に更新する
+                        </label>
+                        <small class="form-hint">チェックした場合、連動タスクの日程も自動的に調整されます</small>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> スケジュール変更
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="closeRescheduleModal()">
+                            <i class="fas fa-times"></i> キャンセル
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- マイルストーン追加/編集モーダル -->
+    <div id="milestone-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-flag"></i> <span id="milestone-modal-title">マイルストーン追加</span></h3>
+                <button class="modal-close" onclick="closeMilestoneModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="milestone-form">
+                    <input type="hidden" id="milestone-id">
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="milestone-name">マイルストーン名 <span class="required">*</span></label>
+                            <input type="text" id="milestone-name" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="milestone-date">日付 <span class="required">*</span></label>
+                            <input type="date" id="milestone-date" required>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="milestone-description">説明</label>
+                        <textarea id="milestone-description" rows="3"></textarea>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="milestone-project">プロジェクト</label>
+                            <select id="milestone-project">
+                                <option value="">すべてのプロジェクト</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="milestone-type">タイプ</label>
+                            <select id="milestone-type">
+                                <option value="delivery">📦 納品</option>
+                                <option value="report">📊 報告</option>
+                                <option value="review">👥 レビュー</option>
+                                <option value="meeting">🤝 会議</option>
+                                <option value="deadline">⏰ 締切</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="milestone-priority">優先度</label>
+                            <select id="milestone-priority">
+                                <option value="low">低</option>
+                                <option value="medium">中</option>
+                                <option value="high">高</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="milestone-status">ステータス</label>
+                            <select id="milestone-status">
+                                <option value="pending">未完了</option>
+                                <option value="completed">完了</option>
+                                <option value="overdue">遅延</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="milestone-related-tasks">関連タスク</label>
+                        <select id="milestone-related-tasks" multiple>
+                            <option value="">関連するタスクを選択</option>
+                        </select>
+                        <small class="form-hint">このマイルストーンに関連するタスクを選択してください</small>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> 保存
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="closeMilestoneModal()">
                             <i class="fas fa-times"></i> キャンセル
                         </button>
                     </div>

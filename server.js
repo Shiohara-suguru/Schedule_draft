@@ -172,10 +172,202 @@ function initializeData() {
 // データの読み込み
 function loadData() {
     try {
-        return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+        const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+        // データ移行処理：既存のタスクに承認機能のフィールドを追加
+        migrateTaskData(data);
+        return data;
     } catch (error) {
         console.error('データの読み込みエラー:', error);
         return { members: [], projects: [], tasks: [], routineJobs: [], workLogs: [] };
+    }
+}
+
+// タスクデータの移行処理（承認機能対応）
+function migrateTaskData(data) {
+    let updated = false;
+    
+    data.tasks.forEach(task => {
+        // 承認関連フィールドが存在しない場合は追加
+        if (!task.hasOwnProperty('requesterId')) {
+            task.requesterId = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approverId')) {
+            task.approverId = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approvalDocuments')) {
+            task.approvalDocuments = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approvalNotes')) {
+            task.approvalNotes = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('submittedAt')) {
+            task.submittedAt = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approvedAt')) {
+            task.approvedAt = null;
+            updated = true;
+        }
+        
+        // 階層承認関連フィールドを追加
+        if (!task.hasOwnProperty('currentApprovalLevel')) {
+            task.currentApprovalLevel = 1;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('maxApprovalLevel')) {
+            task.maxApprovalLevel = 1;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approvalLevel1Id')) {
+            task.approvalLevel1Id = task.approverId; // 既存の承認者をレベル1に移行
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approvalLevel2Id')) {
+            task.approvalLevel2Id = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approvalLevel3Id')) {
+            task.approvalLevel3Id = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approvalLevel1Notes')) {
+            task.approvalLevel1Notes = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approvalLevel2Notes')) {
+            task.approvalLevel2Notes = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approvalLevel3Notes')) {
+            task.approvalLevel3Notes = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approvalLevel1At')) {
+            task.approvalLevel1At = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approvalLevel2At')) {
+            task.approvalLevel2At = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approvalLevel3At')) {
+            task.approvalLevel3At = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('approvalHistory')) {
+            task.approvalHistory = [];
+            updated = true;
+        }
+        
+        // 進捗管理関連フィールドを追加
+        if (!task.hasOwnProperty('plannedProgress')) {
+            task.plannedProgress = 0; // 計画進捗率 (0-100)
+            updated = true;
+        }
+        if (!task.hasOwnProperty('actualProgress')) {
+            task.actualProgress = 0; // 実際進捗率 (0-100)
+            updated = true;
+        }
+        if (!task.hasOwnProperty('originalStartDate')) {
+            task.originalStartDate = task.startDate; // 元の開始日
+            updated = true;
+        }
+        if (!task.hasOwnProperty('originalEndDate')) {
+            task.originalEndDate = task.endDate; // 元の終了日
+            updated = true;
+        }
+        if (!task.hasOwnProperty('linkedTasks')) {
+            task.linkedTasks = []; // 連動タスクID配列
+            updated = true;
+        }
+        if (!task.hasOwnProperty('delayStatus')) {
+            task.delayStatus = 'on_schedule'; // 'on_schedule', 'delayed', 'at_risk'
+            updated = true;
+        }
+        if (!task.hasOwnProperty('delayMessage')) {
+            task.delayMessage = null;
+            updated = true;
+        }
+        if (!task.hasOwnProperty('progressHistory')) {
+            task.progressHistory = [];
+            updated = true;
+        }
+        if (!task.hasOwnProperty('scheduleChangeHistory')) {
+            task.scheduleChangeHistory = [];
+            updated = true;
+        }
+    });
+    
+    // タスク依存関係の詳細設定を追加
+    data.tasks.forEach(task => {
+        if (!task.hasOwnProperty('dependencyType')) {
+            task.dependencyType = 'finish_to_start'; // finish_to_start, start_to_start, finish_to_finish, start_to_finish
+            updated = true;
+        }
+        if (!task.hasOwnProperty('dependencyLag')) {
+            task.dependencyLag = 0; // 依存関係のラグ日数
+            updated = true;
+        }
+        if (!task.hasOwnProperty('predecessorTasks')) {
+            task.predecessorTasks = []; // 先行タスクの詳細情報 [{taskId, type, lag}]
+            updated = true;
+        }
+    });
+    
+    // マイルストーンデータ配列を追加
+    if (!data.hasOwnProperty('milestones')) {
+        data.milestones = [];
+        updated = true;
+    }
+    
+    // 各マイルストーンのデフォルトフィールドを追加
+    data.milestones.forEach(milestone => {
+        if (!milestone.hasOwnProperty('id')) {
+            milestone.id = Date.now();
+            updated = true;
+        }
+        if (!milestone.hasOwnProperty('name')) {
+            milestone.name = '';
+            updated = true;
+        }
+        if (!milestone.hasOwnProperty('description')) {
+            milestone.description = '';
+            updated = true;
+        }
+        if (!milestone.hasOwnProperty('date')) {
+            milestone.date = new Date().toISOString().split('T')[0];
+            updated = true;
+        }
+        if (!milestone.hasOwnProperty('projectId')) {
+            milestone.projectId = null;
+            updated = true;
+        }
+        if (!milestone.hasOwnProperty('type')) {
+            milestone.type = 'delivery'; // delivery, report, review, meeting, deadline
+            updated = true;
+        }
+        if (!milestone.hasOwnProperty('status')) {
+            milestone.status = 'pending'; // pending, completed, overdue
+            updated = true;
+        }
+        if (!milestone.hasOwnProperty('priority')) {
+            milestone.priority = 'medium'; // low, medium, high
+            updated = true;
+        }
+        if (!milestone.hasOwnProperty('relatedTasks')) {
+            milestone.relatedTasks = []; // 関連タスクのID配列
+            updated = true;
+        }
+    });
+    
+    // 更新があった場合はファイルに保存
+    if (updated) {
+        saveData(data);
+        console.log('タスクデータを進捗管理機能対応に移行しました');
     }
 }
 
@@ -388,7 +580,9 @@ app.post('/api/tasks', (req, res) => {
     const data = loadData();
     const { 
         projectId, name, description, assigneeId, requesterId, approverId, 
-        startDate, endDate, estimatedHours, priority, dependencies, approvalDocuments 
+        startDate, endDate, estimatedHours, priority, dependencies, approvalDocuments,
+        plannedProgress, actualProgress, linkedTasks, predecessorTasks,
+        approvalLevel1Id, status
     } = req.body;
     
     if (!projectId || !name || !assigneeId || !startDate || !endDate || !estimatedHours) {
@@ -431,13 +625,43 @@ app.post('/api/tasks', (req, res) => {
         endDate,
         estimatedHours: parseFloat(estimatedHours),
         actualHours: 0,
-        status: 'pending',
+        status: status || 'pending',
         priority: priority || 'medium',
         dependencies: dependencies || [],
         approvalDocuments: approvalDocuments || '',
         approvalNotes: '',
         approvedAt: null,
-        submittedForApprovalAt: null
+        submittedForApprovalAt: null,
+        
+        // 階層承認関連フィールド
+        currentApprovalLevel: 1,
+        maxApprovalLevel: 1,
+        approvalLevel1Id: approvalLevel1Id ? parseInt(approvalLevel1Id) : (approverId ? parseInt(approverId) : null),
+        approvalLevel2Id: null,
+        approvalLevel3Id: null,
+        approvalLevel1Notes: null,
+        approvalLevel2Notes: null,
+        approvalLevel3Notes: null,
+        approvalLevel1At: null,
+        approvalLevel2At: null,
+        approvalLevel3At: null,
+        approvalHistory: [],
+        
+        // 進捗管理関連フィールド
+        plannedProgress: parseInt(plannedProgress) || 0,
+        actualProgress: parseInt(actualProgress) || 0,
+        originalStartDate: startDate,
+        originalEndDate: endDate,
+        linkedTasks: linkedTasks || [],
+        delayStatus: 'on_schedule',
+        delayMessage: null,
+        progressHistory: [],
+        scheduleChangeHistory: [],
+        
+        // タスク依存関係フィールド
+        predecessorTasks: predecessorTasks || [], // [{taskId, type, lag}] 形式
+        dependencyType: 'finish_to_start',
+        dependencyLag: 0
     };
     
     data.tasks.push(newTask);
@@ -487,6 +711,85 @@ app.delete('/api/tasks/:id', (req, res) => {
         res.json({ success: true });
     } else {
         res.status(500).json({ error: 'データの保存に失敗しました' });
+    }
+});
+
+// ヘルスチェックエンドポイント
+app.get('/api/health', (req, res) => {
+    const data = loadData();
+    const health = {
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
+        dataStatus: {
+            projects: data.projects?.length || 0,
+            tasks: data.tasks?.length || 0,
+            members: data.members?.length || 0,
+            milestones: data.milestones?.length || 0
+        },
+        warnings: []
+    };
+    
+    // 基本的なヘルスチェック
+    if (health.dataStatus.projects === 0 && health.dataStatus.tasks === 0) {
+        health.warnings.push('データが空の状態です');
+    }
+    
+    if (health.memory.heapUsed > 100 * 1024 * 1024) { // 100MB以上
+        health.warnings.push('メモリ使用量が高くなっています');
+    }
+    
+    res.json(health);
+});
+
+// 自動保存エンドポイント
+app.post('/api/auto-save', (req, res) => {
+    try {
+        const { timestamp, data: backupData } = req.body;
+        
+        // データの基本的な検証
+        if (!backupData || typeof backupData !== 'object') {
+            return res.status(400).json({ error: '無効なバックアップデータです' });
+        }
+        
+        // 自動保存ログ
+        console.log(`${timestamp}: 自動保存が実行されました`);
+        
+        res.json({ 
+            success: true, 
+            message: '自動保存が完了しました',
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error('自動保存エラー:', error);
+        res.status(500).json({ error: '自動保存に失敗しました' });
+    }
+});
+
+// 自動回復エンドポイント
+app.post('/api/recovery/restart', (req, res) => {
+    try {
+        const { timestamp, errorCount } = req.body;
+        
+        console.log(`${timestamp}: 自動回復プロセスが実行されました (エラー数: ${errorCount})`);
+        
+        // 簡単なシステムチェック
+        const data = loadData();
+        
+        res.json({
+            success: true,
+            message: '自動回復が完了しました',
+            timestamp: new Date().toISOString(),
+            dataStatus: {
+                projects: data.projects?.length || 0,
+                tasks: data.tasks?.length || 0,
+                members: data.members?.length || 0
+            }
+        });
+    } catch (error) {
+        console.error('自動回復エラー:', error);
+        res.status(500).json({ error: '自動回復に失敗しました' });
     }
 });
 
@@ -573,15 +876,292 @@ app.post('/api/tasks/:id/reject', (req, res) => {
     }
 });
 
+// 階層承認処理
+app.post('/api/tasks/:id/approve-with-level', (req, res) => {
+    const data = loadData();
+    const taskId = parseInt(req.params.id);
+    const { approvalNotes, needsHigherLevel, higherLevelApproverId } = req.body;
+    
+    const taskIndex = data.tasks.findIndex(t => t.id === taskId);
+    if (taskIndex === -1) {
+        return res.status(404).json({ error: 'タスクが見つかりません' });
+    }
+    
+    const task = data.tasks[taskIndex];
+    const currentLevel = task.currentApprovalLevel;
+    const currentTime = new Date().toISOString();
+    
+    // 現在のレベルの承認情報を記録
+    task[`approvalLevel${currentLevel}Notes`] = approvalNotes || '';
+    task[`approvalLevel${currentLevel}At`] = currentTime;
+    
+    // 承認履歴に追加
+    task.approvalHistory.push({
+        level: currentLevel,
+        approverId: task[`approvalLevel${currentLevel}Id`],
+        action: needsHigherLevel ? 'approved_with_escalation' : 'approved_final',
+        notes: approvalNotes || '',
+        timestamp: currentTime
+    });
+    
+    if (needsHigherLevel && higherLevelApproverId && currentLevel < 3) {
+        // より高いレベルの承認が必要な場合
+        const nextLevel = currentLevel + 1;
+        task.currentApprovalLevel = nextLevel;
+        task.maxApprovalLevel = Math.max(task.maxApprovalLevel, nextLevel);
+        task[`approvalLevel${nextLevel}Id`] = parseInt(higherLevelApproverId);
+        task.status = 'pending_approval';
+        
+        // 自動的に承認依頼を生成
+        task.approvalHistory.push({
+            level: nextLevel,
+            approverId: parseInt(higherLevelApproverId),
+            action: 'auto_submitted',
+            notes: `レベル${currentLevel}から自動エスカレーション`,
+            timestamp: currentTime
+        });
+    } else {
+        // 最終承認
+        task.status = 'approved';
+        task.approvedAt = currentTime;
+    }
+    
+    if (saveData(data)) {
+        res.json({ 
+            success: true, 
+            task: task,
+            escalated: needsHigherLevel && higherLevelApproverId && currentLevel < 3
+        });
+    } else {
+        res.status(500).json({ error: 'データの保存に失敗しました' });
+    }
+});
+
+app.post('/api/tasks/:id/reject-with-level', (req, res) => {
+    const data = loadData();
+    const taskId = parseInt(req.params.id);
+    const { approvalNotes } = req.body;
+    
+    const taskIndex = data.tasks.findIndex(t => t.id === taskId);
+    if (taskIndex === -1) {
+        return res.status(404).json({ error: 'タスクが見つかりません' });
+    }
+    
+    const task = data.tasks[taskIndex];
+    const currentLevel = task.currentApprovalLevel;
+    const currentTime = new Date().toISOString();
+    
+    // 却下情報を記録
+    task[`approvalLevel${currentLevel}Notes`] = approvalNotes || '';
+    task.status = 'rejected';
+    
+    // 承認履歴に追加
+    task.approvalHistory.push({
+        level: currentLevel,
+        approverId: task[`approvalLevel${currentLevel}Id`],
+        action: 'rejected',
+        notes: approvalNotes || '',
+        timestamp: currentTime
+    });
+    
+    if (saveData(data)) {
+        res.json({ success: true, task: task });
+    } else {
+        res.status(500).json({ error: 'データの保存に失敗しました' });
+    }
+});
+
+// 進捗管理エンドポイント
+app.post('/api/tasks/:id/update-progress', (req, res) => {
+    const data = loadData();
+    const taskId = parseInt(req.params.id);
+    const { plannedProgress, actualProgress, notes } = req.body;
+    
+    const taskIndex = data.tasks.findIndex(t => t.id === taskId);
+    if (taskIndex === -1) {
+        return res.status(404).json({ error: 'タスクが見つかりません' });
+    }
+    
+    const task = data.tasks[taskIndex];
+    const currentTime = new Date().toISOString();
+    
+    // 進捗率を更新
+    task.plannedProgress = Math.min(100, Math.max(0, plannedProgress || 0));
+    task.actualProgress = Math.min(100, Math.max(0, actualProgress || 0));
+    
+    // 進捗履歴に追加
+    task.progressHistory.push({
+        timestamp: currentTime,
+        plannedProgress: task.plannedProgress,
+        actualProgress: task.actualProgress,
+        notes: notes || '',
+        updatedBy: 'user' // 実際にはユーザーIDを使用
+    });
+    
+    // 遅延ステータスをチェック
+    checkDelayStatus(task);
+    
+    if (saveData(data)) {
+        res.json({ 
+            success: true, 
+            task: task,
+            delayWarning: task.delayStatus !== 'on_schedule'
+        });
+    } else {
+        res.status(500).json({ error: 'データの保存に失敗しました' });
+    }
+});
+
+app.post('/api/tasks/:id/update-linked-tasks', (req, res) => {
+    const data = loadData();
+    const taskId = parseInt(req.params.id);
+    const { linkedTaskIds, linkedTasks } = req.body;
+    const taskIdsToUpdate = linkedTaskIds || linkedTasks || [];
+    
+    const taskIndex = data.tasks.findIndex(t => t.id === taskId);
+    if (taskIndex === -1) {
+        return res.status(404).json({ error: 'タスクが見つかりません' });
+    }
+    
+    // 連動タスクのIDが存在するかチェック
+    const validLinkedTaskIds = taskIdsToUpdate.filter(id => {
+        return data.tasks.some(t => t.id === parseInt(id));
+    });
+    
+    data.tasks[taskIndex].linkedTasks = validLinkedTaskIds.map(id => parseInt(id));
+    
+    if (saveData(data)) {
+        res.json({ success: true, task: data.tasks[taskIndex] });
+    } else {
+        res.status(500).json({ error: 'データの保存に失敗しました' });
+    }
+});
+
+app.post('/api/tasks/:id/reschedule-with-linked', (req, res) => {
+    const data = loadData();
+    const taskId = parseInt(req.params.id);
+    const { newStartDate, newEndDate, updateLinkedTasks, reason } = req.body;
+    
+    const taskIndex = data.tasks.findIndex(t => t.id === taskId);
+    if (taskIndex === -1) {
+        return res.status(404).json({ error: 'タスクが見つかりません' });
+    }
+    
+    const task = data.tasks[taskIndex];
+    const currentTime = new Date().toISOString();
+    const oldStartDate = task.startDate;
+    const oldEndDate = task.endDate;
+    
+    // スケジュール変更履歴に追加
+    task.scheduleChangeHistory.push({
+        timestamp: currentTime,
+        oldStartDate: oldStartDate,
+        oldEndDate: oldEndDate,
+        newStartDate: newStartDate,
+        newEndDate: newEndDate,
+        reason: reason || '',
+        type: 'manual_reschedule'
+    });
+    
+    // 日程を更新
+    task.startDate = newStartDate;
+    task.endDate = newEndDate;
+    
+    // 遅延ステータスをリセット
+    task.delayStatus = 'on_schedule';
+    task.delayMessage = null;
+    
+    const updatedTasks = [task];
+    
+    // 連動タスクを更新
+    if (updateLinkedTasks && task.linkedTasks.length > 0) {
+        const daysDifference = (new Date(newEndDate) - new Date(oldEndDate)) / (1000 * 60 * 60 * 24);
+        
+        task.linkedTasks.forEach(linkedTaskId => {
+            const linkedTaskIndex = data.tasks.findIndex(t => t.id === linkedTaskId);
+            if (linkedTaskIndex !== -1) {
+                const linkedTask = data.tasks[linkedTaskIndex];
+                const linkedOldStartDate = linkedTask.startDate;
+                const linkedOldEndDate = linkedTask.endDate;
+                
+                // 連動タスクの日程を調整
+                const linkedNewStartDate = new Date(new Date(linkedTask.startDate).getTime() + daysDifference * 24 * 60 * 60 * 1000);
+                const linkedNewEndDate = new Date(new Date(linkedTask.endDate).getTime() + daysDifference * 24 * 60 * 60 * 1000);
+                
+                linkedTask.startDate = linkedNewStartDate.toISOString().split('T')[0];
+                linkedTask.endDate = linkedNewEndDate.toISOString().split('T')[0];
+                
+                // 遅延記録を追加
+                linkedTask.scheduleChangeHistory.push({
+                    timestamp: currentTime,
+                    oldStartDate: linkedOldStartDate,
+                    oldEndDate: linkedOldEndDate,
+                    newStartDate: linkedTask.startDate,
+                    newEndDate: linkedTask.endDate,
+                    reason: `連動タスク(ID:${taskId})の遅延による自動調整`,
+                    type: 'linked_task_adjustment',
+                    sourceTaskId: taskId
+                });
+                
+                updatedTasks.push(linkedTask);
+            }
+        });
+    }
+    
+    if (saveData(data)) {
+        res.json({ 
+            success: true, 
+            updatedTasks: updatedTasks,
+            message: updateLinkedTasks ? 'スケジュールと連動タスクを更新しました' : 'スケジュールを更新しました'
+        });
+    } else {
+        res.status(500).json({ error: 'データの保存に失敗しました' });
+    }
+});
+
+// 遅延ステータスチェック関数
+function checkDelayStatus(task) {
+    const today = new Date();
+    const endDate = new Date(task.endDate);
+    const totalDays = (new Date(task.endDate) - new Date(task.startDate)) / (1000 * 60 * 60 * 24);
+    const elapsedDays = (today - new Date(task.startDate)) / (1000 * 60 * 60 * 24);
+    
+    // 期待進捗率を計算
+    const expectedProgress = Math.min(100, Math.max(0, (elapsedDays / totalDays) * 100));
+    
+    // 遅延判定
+    const progressDifference = task.actualProgress - expectedProgress;
+    
+    if (task.actualProgress < 100 && today > endDate) {
+        // 終了日を過ぎているが完了していない
+        task.delayStatus = 'delayed';
+        task.delayMessage = '終了予定日を過ぎています';
+    } else if (progressDifference < -15) {
+        // 期待進捗より15%以上遅れている
+        task.delayStatus = 'delayed';
+        task.delayMessage = `進捗が予定より${Math.abs(progressDifference).toFixed(1)}%遅れています`;
+    } else if (progressDifference < -5) {
+        // 期待進捗より5-15%遅れている
+        task.delayStatus = 'at_risk';
+        task.delayMessage = `遅延リスク: 進捗が予定より${Math.abs(progressDifference).toFixed(1)}%遅れています`;
+    } else {
+        task.delayStatus = 'on_schedule';
+        task.delayMessage = null;
+    }
+}
+
 // CSV出力エンドポイント
 app.get('/api/tasks/export/csv', (req, res) => {
     const data = loadData();
     
     // CSVヘッダー
     const csvHeader = [
-        'ID', 'プロジェクト名', 'タスク名', '説明', '担当者', '依頼者', '承認者',
-        '開始日', '終了日', '予定工数', '実績工数', 'ステータス', '優先度',
-        '承認書類', '承認コメント', '承認日時', '申請日時'
+        'ID', 'プロジェクト名', 'タスク名', '説明', '担当者', '依頼者',
+        '元の開始日', '元の終了日', '現在の開始日', '現在の終了日',
+        '予定工数', '実績工数', '計画進捗率', '実際進捗率',
+        'ステータス', '優先度', '遅延ステータス', '遅延メッセージ',
+        '連動タスクID', '承認状態', '承認書類', '承認日時', '申請日時',
+        'スケジュール変更回数', '進捗更新回数'
     ].join(',');
     
     // CSVデータ行
@@ -589,7 +1169,23 @@ app.get('/api/tasks/export/csv', (req, res) => {
         const project = data.projects.find(p => p.id === task.projectId);
         const assignee = data.members.find(m => m.id === task.assigneeId);
         const requester = data.members.find(m => m.id === task.requesterId);
-        const approver = data.members.find(m => m.id === task.approverId);
+        
+        // 承認状態を簡素化
+        let approvalStatus = '未承認';
+        if (task.status === 'approved') {
+            approvalStatus = '承認完了';
+        } else if (task.status === 'pending_approval') {
+            approvalStatus = '承認待ち';
+        } else if (task.status === 'rejected') {
+            approvalStatus = '却下';
+        }
+        
+        // 遅延ステータステキスト
+        const delayStatusText = {
+            'on_schedule': '予定通り',
+            'at_risk': '遅延リスク',
+            'delayed': '遅延中'
+        }[task.delayStatus] || task.delayStatus;
         
         return [
             task.id,
@@ -598,17 +1194,25 @@ app.get('/api/tasks/export/csv', (req, res) => {
             `"${task.description}"`,
             `"${assignee ? assignee.name : ''}"`,
             `"${requester ? requester.name : ''}"`,
-            `"${approver ? approver.name : ''}"`,
+            task.originalStartDate || task.startDate,
+            task.originalEndDate || task.endDate,
             task.startDate,
             task.endDate,
             task.estimatedHours,
             task.actualHours,
+            task.plannedProgress || 0,
+            task.actualProgress || 0,
             getStatusTextForCSV(task.status),
             getPriorityTextForCSV(task.priority),
+            delayStatusText,
+            `"${task.delayMessage || ''}"`,
+            `"${(task.linkedTasks || []).join(',')}"`,
+            approvalStatus,
             `"${task.approvalDocuments || ''}"`,
-            `"${task.approvalNotes || ''}"`,
             task.approvedAt ? new Date(task.approvedAt).toLocaleDateString('ja-JP') : '',
-            task.submittedForApprovalAt ? new Date(task.submittedForApprovalAt).toLocaleDateString('ja-JP') : ''
+            task.submittedForApprovalAt ? new Date(task.submittedForApprovalAt).toLocaleDateString('ja-JP') : '',
+            (task.scheduleChangeHistory || []).length,
+            (task.progressHistory || []).length
         ].join(',');
     });
     
@@ -617,6 +1221,84 @@ app.get('/api/tasks/export/csv', (req, res) => {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="tasks_${new Date().toISOString().split('T')[0]}.csv"`);
     res.send('\uFEFF' + csvContent); // BOM付きでExcelで正常に表示
+});
+
+// 進捗履歴CSV出力
+app.get('/api/progress-history/export/csv', (req, res) => {
+    const data = loadData();
+    
+    // CSVヘッダー
+    const csvHeader = [
+        'タスクID', 'タスク名', '更新日時', '計画進捗率', '実際進捗率', 'コメント', '更新者'
+    ].join(',');
+    
+    // CSVデータ行
+    const csvRows = [];
+    data.tasks.forEach(task => {
+        if (task.progressHistory && task.progressHistory.length > 0) {
+            task.progressHistory.forEach(progress => {
+                csvRows.push([
+                    task.id,
+                    `"${task.name}"`,
+                    new Date(progress.timestamp).toLocaleString('ja-JP'),
+                    progress.plannedProgress,
+                    progress.actualProgress,
+                    `"${progress.notes || ''}"`,
+                    progress.updatedBy || ''
+                ].join(','));
+            });
+        }
+    });
+    
+    const csvContent = [csvHeader, ...csvRows].join('\n');
+    
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="progress_history_${new Date().toISOString().split('T')[0]}.csv"`);
+    res.send('\uFEFF' + csvContent);
+});
+
+// スケジュール変更履歴CSV出力
+app.get('/api/schedule-changes/export/csv', (req, res) => {
+    const data = loadData();
+    
+    // CSVヘッダー
+    const csvHeader = [
+        'タスクID', 'タスク名', '変更日時', '変更種別',
+        '旧開始日', '旧終了日', '新開始日', '新終了日',
+        '変更理由', '連動元タスクID'
+    ].join(',');
+    
+    // CSVデータ行
+    const csvRows = [];
+    data.tasks.forEach(task => {
+        if (task.scheduleChangeHistory && task.scheduleChangeHistory.length > 0) {
+            task.scheduleChangeHistory.forEach(change => {
+                const changeTypeText = {
+                    'manual_reschedule': '手動変更',
+                    'linked_task_adjustment': '連動タスク調整'
+                }[change.type] || change.type;
+                
+                csvRows.push([
+                    task.id,
+                    `"${task.name}"`,
+                    new Date(change.timestamp).toLocaleString('ja-JP'),
+                    changeTypeText,
+                    change.oldStartDate,
+                    change.oldEndDate,
+                    change.newStartDate,
+                    change.newEndDate,
+                    `"${change.reason || ''}"`,
+                    change.sourceTaskId || ''
+                ].join(','));
+            });
+        }
+    });
+    
+    const csvContent = [csvHeader, ...csvRows].join('\n');
+    
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="schedule_changes_${new Date().toISOString().split('T')[0]}.csv"`);
+    res.send('\uFEFF' + csvContent);
 });
 
 function getStatusTextForCSV(status) {
@@ -846,6 +1528,219 @@ app.get('/api/calendar', (req, res) => {
     });
     
     res.json(events);
+});
+
+// マイルストーン管理API
+
+// マイルストーン一覧取得
+app.get('/api/milestones', (req, res) => {
+    const data = loadData();
+    res.json(data.milestones || []);
+});
+
+// マイルストーン作成
+app.post('/api/milestones', (req, res) => {
+    const data = loadData();
+    const { name, description, date, projectId, type, priority, relatedTasks } = req.body;
+    
+    if (!name || !date) {
+        return res.status(400).json({ error: '名前と日付は必須です' });
+    }
+    
+    const newMilestone = {
+        id: Math.max(...(data.milestones || []).map(m => m.id), 0) + 1,
+        name,
+        description: description || '',
+        date,
+        projectId: projectId || null,
+        type: type || 'delivery',
+        status: 'pending',
+        priority: priority || 'medium',
+        relatedTasks: relatedTasks || []
+    };
+    
+    if (!data.milestones) data.milestones = [];
+    data.milestones.push(newMilestone);
+    
+    if (saveData(data)) {
+        res.json(newMilestone);
+    } else {
+        res.status(500).json({ error: 'マイルストーンの保存に失敗しました' });
+    }
+});
+
+// マイルストーン更新
+app.put('/api/milestones/:id', (req, res) => {
+    const data = loadData();
+    const milestoneId = parseInt(req.params.id);
+    const { name, description, date, projectId, type, status, priority, relatedTasks } = req.body;
+    
+    const milestoneIndex = data.milestones.findIndex(m => m.id === milestoneId);
+    if (milestoneIndex === -1) {
+        return res.status(404).json({ error: 'マイルストーンが見つかりません' });
+    }
+    
+    const milestone = data.milestones[milestoneIndex];
+    milestone.name = name || milestone.name;
+    milestone.description = description !== undefined ? description : milestone.description;
+    milestone.date = date || milestone.date;
+    milestone.projectId = projectId !== undefined ? projectId : milestone.projectId;
+    milestone.type = type || milestone.type;
+    milestone.status = status || milestone.status;
+    milestone.priority = priority || milestone.priority;
+    milestone.relatedTasks = relatedTasks || milestone.relatedTasks;
+    
+    if (saveData(data)) {
+        res.json(milestone);
+    } else {
+        res.status(500).json({ error: 'マイルストーンの更新に失敗しました' });
+    }
+});
+
+// マイルストーン削除
+app.delete('/api/milestones/:id', (req, res) => {
+    const data = loadData();
+    const milestoneId = parseInt(req.params.id);
+    
+    const milestoneIndex = data.milestones.findIndex(m => m.id === milestoneId);
+    if (milestoneIndex === -1) {
+        return res.status(404).json({ error: 'マイルストーンが見つかりません' });
+    }
+    
+    data.milestones.splice(milestoneIndex, 1);
+    
+    if (saveData(data)) {
+        res.json({ message: 'マイルストーンを削除しました' });
+    } else {
+        res.status(500).json({ error: 'マイルストーンの削除に失敗しました' });
+    }
+});
+
+// タスク依存関係更新API
+app.post('/api/tasks/:id/update-dependencies', (req, res) => {
+    const data = loadData();
+    const taskId = parseInt(req.params.id);
+    const { predecessorTasks } = req.body; // [{taskId, type, lag}] 形式
+    
+    const taskIndex = data.tasks.findIndex(t => t.id === taskId);
+    if (taskIndex === -1) {
+        return res.status(404).json({ error: 'タスクが見つかりません' });
+    }
+    
+    // 先行タスクの存在確認
+    const validPredecessors = [];
+    if (predecessorTasks && Array.isArray(predecessorTasks)) {
+        for (const pred of predecessorTasks) {
+            const predTask = data.tasks.find(t => t.id === parseInt(pred.taskId));
+            if (predTask && predTask.id !== taskId) { // 自分自身は除外
+                validPredecessors.push({
+                    taskId: parseInt(pred.taskId),
+                    type: pred.type || 'finish_to_start',
+                    lag: parseInt(pred.lag) || 0
+                });
+            }
+        }
+    }
+    
+    data.tasks[taskIndex].predecessorTasks = validPredecessors;
+    
+    // 従来の dependencies フィールドも更新（後方互換性）
+    data.tasks[taskIndex].dependencies = validPredecessors.map(p => p.taskId);
+    
+    if (saveData(data)) {
+        res.json({ 
+            message: 'タスク依存関係を更新しました',
+            predecessorTasks: validPredecessors
+        });
+    } else {
+        res.status(500).json({ error: 'タスク依存関係の更新に失敗しました' });
+    }
+});
+
+// カレンダー統合用のiCal出力
+app.get('/api/calendar/ical', (req, res) => {
+    const data = loadData();
+    
+    res.setHeader('Content-Type', 'text/calendar');
+    res.setHeader('Content-Disposition', 'attachment; filename="project_calendar.ics"');
+    
+    let ical = 'BEGIN:VCALENDAR\r\n';
+    ical += 'VERSION:2.0\r\n';
+    ical += 'PRODID:-//Project Management System//EN\r\n';
+    ical += 'CALSCALE:GREGORIAN\r\n';
+    
+    // タスクをイベントとして追加
+    data.tasks.forEach(task => {
+        const assignee = data.members.find(m => m.id === task.assigneeId);
+        
+        ical += 'BEGIN:VEVENT\r\n';
+        ical += `UID:task-${task.id}@projectmanagement\r\n`;
+        ical += `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}Z\r\n`;
+        ical += `DTSTART;VALUE=DATE:${task.startDate.replace(/-/g, '')}\r\n`;
+        ical += `DTEND;VALUE=DATE:${task.endDate.replace(/-/g, '')}\r\n`;
+        ical += `SUMMARY:${task.name}\r\n`;
+        ical += `DESCRIPTION:${task.description || ''}\\nAssignee: ${assignee ? assignee.name : 'Unknown'}\\nStatus: ${task.status}\r\n`;
+        ical += `CATEGORIES:${task.priority.toUpperCase()}\r\n`;
+        ical += 'END:VEVENT\r\n';
+    });
+    
+    // マイルストーンをイベントとして追加
+    if (data.milestones) {
+        data.milestones.forEach(milestone => {
+            const project = data.projects.find(p => p.id === milestone.projectId);
+            
+            ical += 'BEGIN:VEVENT\r\n';
+            ical += `UID:milestone-${milestone.id}@projectmanagement\r\n`;
+            ical += `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}Z\r\n`;
+            ical += `DTSTART;VALUE=DATE:${milestone.date.replace(/-/g, '')}\r\n`;
+            ical += `DTEND;VALUE=DATE:${milestone.date.replace(/-/g, '')}\r\n`;
+            ical += `SUMMARY:📍 ${milestone.name} (マイルストーン)\r\n`;
+            ical += `DESCRIPTION:${milestone.description}\\nタイプ: ${milestone.type}\\nプロジェクト: ${project ? project.name : 'All'}\r\n`;
+            ical += `CATEGORIES:MILESTONE,${milestone.priority.toUpperCase()}\r\n`;
+            ical += 'END:VEVENT\r\n';
+        });
+    }
+    
+    ical += 'END:VCALENDAR\r\n';
+    res.send(ical);
+});
+
+// 自動保存API
+app.post('/api/auto-save', (req, res) => {
+    const data = loadData();
+    const { type, payload, timestamp } = req.body;
+    
+    try {
+        switch (type) {
+            case 'task':
+                const taskIndex = data.tasks.findIndex(t => t.id === payload.id);
+                if (taskIndex !== -1) {
+                    data.tasks[taskIndex] = { ...data.tasks[taskIndex], ...payload };
+                }
+                break;
+            case 'project':
+                const projectIndex = data.projects.findIndex(p => p.id === payload.id);
+                if (projectIndex !== -1) {
+                    data.projects[projectIndex] = { ...data.projects[projectIndex], ...payload };
+                }
+                break;
+            case 'milestone':
+                const milestoneIndex = data.milestones.findIndex(m => m.id === payload.id);
+                if (milestoneIndex !== -1) {
+                    data.milestones[milestoneIndex] = { ...data.milestones[milestoneIndex], ...payload };
+                }
+                break;
+        }
+        
+        if (saveData(data)) {
+            res.json({ success: true, timestamp });
+        } else {
+            res.status(500).json({ error: '自動保存に失敗しました' });
+        }
+    } catch (error) {
+        console.error('自動保存エラー:', error);
+        res.status(500).json({ error: '自動保存処理でエラーが発生しました' });
+    }
 });
 
 // メインページの配信
