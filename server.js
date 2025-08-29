@@ -302,6 +302,68 @@ function migrateTaskData(data) {
         }
     });
     
+    // タスク依存関係の詳細設定を追加
+    data.tasks.forEach(task => {
+        if (!task.hasOwnProperty('dependencyType')) {
+            task.dependencyType = 'finish_to_start'; // finish_to_start, start_to_start, finish_to_finish, start_to_finish
+            updated = true;
+        }
+        if (!task.hasOwnProperty('dependencyLag')) {
+            task.dependencyLag = 0; // 依存関係のラグ日数
+            updated = true;
+        }
+        if (!task.hasOwnProperty('predecessorTasks')) {
+            task.predecessorTasks = []; // 先行タスクの詳細情報 [{taskId, type, lag}]
+            updated = true;
+        }
+    });
+    
+    // マイルストーンデータ配列を追加
+    if (!data.hasOwnProperty('milestones')) {
+        data.milestones = [];
+        updated = true;
+    }
+    
+    // 各マイルストーンのデフォルトフィールドを追加
+    data.milestones.forEach(milestone => {
+        if (!milestone.hasOwnProperty('id')) {
+            milestone.id = Date.now();
+            updated = true;
+        }
+        if (!milestone.hasOwnProperty('name')) {
+            milestone.name = '';
+            updated = true;
+        }
+        if (!milestone.hasOwnProperty('description')) {
+            milestone.description = '';
+            updated = true;
+        }
+        if (!milestone.hasOwnProperty('date')) {
+            milestone.date = new Date().toISOString().split('T')[0];
+            updated = true;
+        }
+        if (!milestone.hasOwnProperty('projectId')) {
+            milestone.projectId = null;
+            updated = true;
+        }
+        if (!milestone.hasOwnProperty('type')) {
+            milestone.type = 'delivery'; // delivery, report, review, meeting, deadline
+            updated = true;
+        }
+        if (!milestone.hasOwnProperty('status')) {
+            milestone.status = 'pending'; // pending, completed, overdue
+            updated = true;
+        }
+        if (!milestone.hasOwnProperty('priority')) {
+            milestone.priority = 'medium'; // low, medium, high
+            updated = true;
+        }
+        if (!milestone.hasOwnProperty('relatedTasks')) {
+            milestone.relatedTasks = []; // 関連タスクのID配列
+            updated = true;
+        }
+    });
+    
     // 更新があった場合はファイルに保存
     if (updated) {
         saveData(data);
@@ -518,7 +580,9 @@ app.post('/api/tasks', (req, res) => {
     const data = loadData();
     const { 
         projectId, name, description, assigneeId, requesterId, approverId, 
-        startDate, endDate, estimatedHours, priority, dependencies, approvalDocuments 
+        startDate, endDate, estimatedHours, priority, dependencies, approvalDocuments,
+        plannedProgress, actualProgress, linkedTasks, predecessorTasks,
+        approvalLevel1Id, status
     } = req.body;
     
     if (!projectId || !name || !assigneeId || !startDate || !endDate || !estimatedHours) {
@@ -561,7 +625,7 @@ app.post('/api/tasks', (req, res) => {
         endDate,
         estimatedHours: parseFloat(estimatedHours),
         actualHours: 0,
-        status: 'pending',
+        status: status || 'pending',
         priority: priority || 'medium',
         dependencies: dependencies || [],
         approvalDocuments: approvalDocuments || '',
@@ -572,7 +636,7 @@ app.post('/api/tasks', (req, res) => {
         // 階層承認関連フィールド
         currentApprovalLevel: 1,
         maxApprovalLevel: 1,
-        approvalLevel1Id: approverId ? parseInt(approverId) : null,
+        approvalLevel1Id: approvalLevel1Id ? parseInt(approvalLevel1Id) : (approverId ? parseInt(approverId) : null),
         approvalLevel2Id: null,
         approvalLevel3Id: null,
         approvalLevel1Notes: null,
@@ -584,15 +648,20 @@ app.post('/api/tasks', (req, res) => {
         approvalHistory: [],
         
         // 進捗管理関連フィールド
-        plannedProgress: 0,
-        actualProgress: 0,
+        plannedProgress: parseInt(plannedProgress) || 0,
+        actualProgress: parseInt(actualProgress) || 0,
         originalStartDate: startDate,
         originalEndDate: endDate,
-        linkedTasks: [],
+        linkedTasks: linkedTasks || [],
         delayStatus: 'on_schedule',
         delayMessage: null,
         progressHistory: [],
-        scheduleChangeHistory: []
+        scheduleChangeHistory: [],
+        
+        // タスク依存関係フィールド
+        predecessorTasks: predecessorTasks || [], // [{taskId, type, lag}] 形式
+        dependencyType: 'finish_to_start',
+        dependencyLag: 0
     };
     
     data.tasks.push(newTask);
@@ -1380,6 +1449,219 @@ app.get('/api/calendar', (req, res) => {
     });
     
     res.json(events);
+});
+
+// マイルストーン管理API
+
+// マイルストーン一覧取得
+app.get('/api/milestones', (req, res) => {
+    const data = loadData();
+    res.json(data.milestones || []);
+});
+
+// マイルストーン作成
+app.post('/api/milestones', (req, res) => {
+    const data = loadData();
+    const { name, description, date, projectId, type, priority, relatedTasks } = req.body;
+    
+    if (!name || !date) {
+        return res.status(400).json({ error: '名前と日付は必須です' });
+    }
+    
+    const newMilestone = {
+        id: Math.max(...(data.milestones || []).map(m => m.id), 0) + 1,
+        name,
+        description: description || '',
+        date,
+        projectId: projectId || null,
+        type: type || 'delivery',
+        status: 'pending',
+        priority: priority || 'medium',
+        relatedTasks: relatedTasks || []
+    };
+    
+    if (!data.milestones) data.milestones = [];
+    data.milestones.push(newMilestone);
+    
+    if (saveData(data)) {
+        res.json(newMilestone);
+    } else {
+        res.status(500).json({ error: 'マイルストーンの保存に失敗しました' });
+    }
+});
+
+// マイルストーン更新
+app.put('/api/milestones/:id', (req, res) => {
+    const data = loadData();
+    const milestoneId = parseInt(req.params.id);
+    const { name, description, date, projectId, type, status, priority, relatedTasks } = req.body;
+    
+    const milestoneIndex = data.milestones.findIndex(m => m.id === milestoneId);
+    if (milestoneIndex === -1) {
+        return res.status(404).json({ error: 'マイルストーンが見つかりません' });
+    }
+    
+    const milestone = data.milestones[milestoneIndex];
+    milestone.name = name || milestone.name;
+    milestone.description = description !== undefined ? description : milestone.description;
+    milestone.date = date || milestone.date;
+    milestone.projectId = projectId !== undefined ? projectId : milestone.projectId;
+    milestone.type = type || milestone.type;
+    milestone.status = status || milestone.status;
+    milestone.priority = priority || milestone.priority;
+    milestone.relatedTasks = relatedTasks || milestone.relatedTasks;
+    
+    if (saveData(data)) {
+        res.json(milestone);
+    } else {
+        res.status(500).json({ error: 'マイルストーンの更新に失敗しました' });
+    }
+});
+
+// マイルストーン削除
+app.delete('/api/milestones/:id', (req, res) => {
+    const data = loadData();
+    const milestoneId = parseInt(req.params.id);
+    
+    const milestoneIndex = data.milestones.findIndex(m => m.id === milestoneId);
+    if (milestoneIndex === -1) {
+        return res.status(404).json({ error: 'マイルストーンが見つかりません' });
+    }
+    
+    data.milestones.splice(milestoneIndex, 1);
+    
+    if (saveData(data)) {
+        res.json({ message: 'マイルストーンを削除しました' });
+    } else {
+        res.status(500).json({ error: 'マイルストーンの削除に失敗しました' });
+    }
+});
+
+// タスク依存関係更新API
+app.post('/api/tasks/:id/update-dependencies', (req, res) => {
+    const data = loadData();
+    const taskId = parseInt(req.params.id);
+    const { predecessorTasks } = req.body; // [{taskId, type, lag}] 形式
+    
+    const taskIndex = data.tasks.findIndex(t => t.id === taskId);
+    if (taskIndex === -1) {
+        return res.status(404).json({ error: 'タスクが見つかりません' });
+    }
+    
+    // 先行タスクの存在確認
+    const validPredecessors = [];
+    if (predecessorTasks && Array.isArray(predecessorTasks)) {
+        for (const pred of predecessorTasks) {
+            const predTask = data.tasks.find(t => t.id === parseInt(pred.taskId));
+            if (predTask && predTask.id !== taskId) { // 自分自身は除外
+                validPredecessors.push({
+                    taskId: parseInt(pred.taskId),
+                    type: pred.type || 'finish_to_start',
+                    lag: parseInt(pred.lag) || 0
+                });
+            }
+        }
+    }
+    
+    data.tasks[taskIndex].predecessorTasks = validPredecessors;
+    
+    // 従来の dependencies フィールドも更新（後方互換性）
+    data.tasks[taskIndex].dependencies = validPredecessors.map(p => p.taskId);
+    
+    if (saveData(data)) {
+        res.json({ 
+            message: 'タスク依存関係を更新しました',
+            predecessorTasks: validPredecessors
+        });
+    } else {
+        res.status(500).json({ error: 'タスク依存関係の更新に失敗しました' });
+    }
+});
+
+// カレンダー統合用のiCal出力
+app.get('/api/calendar/ical', (req, res) => {
+    const data = loadData();
+    
+    res.setHeader('Content-Type', 'text/calendar');
+    res.setHeader('Content-Disposition', 'attachment; filename="project_calendar.ics"');
+    
+    let ical = 'BEGIN:VCALENDAR\r\n';
+    ical += 'VERSION:2.0\r\n';
+    ical += 'PRODID:-//Project Management System//EN\r\n';
+    ical += 'CALSCALE:GREGORIAN\r\n';
+    
+    // タスクをイベントとして追加
+    data.tasks.forEach(task => {
+        const assignee = data.members.find(m => m.id === task.assigneeId);
+        
+        ical += 'BEGIN:VEVENT\r\n';
+        ical += `UID:task-${task.id}@projectmanagement\r\n`;
+        ical += `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}Z\r\n`;
+        ical += `DTSTART;VALUE=DATE:${task.startDate.replace(/-/g, '')}\r\n`;
+        ical += `DTEND;VALUE=DATE:${task.endDate.replace(/-/g, '')}\r\n`;
+        ical += `SUMMARY:${task.name}\r\n`;
+        ical += `DESCRIPTION:${task.description || ''}\\nAssignee: ${assignee ? assignee.name : 'Unknown'}\\nStatus: ${task.status}\r\n`;
+        ical += `CATEGORIES:${task.priority.toUpperCase()}\r\n`;
+        ical += 'END:VEVENT\r\n';
+    });
+    
+    // マイルストーンをイベントとして追加
+    if (data.milestones) {
+        data.milestones.forEach(milestone => {
+            const project = data.projects.find(p => p.id === milestone.projectId);
+            
+            ical += 'BEGIN:VEVENT\r\n';
+            ical += `UID:milestone-${milestone.id}@projectmanagement\r\n`;
+            ical += `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}Z\r\n`;
+            ical += `DTSTART;VALUE=DATE:${milestone.date.replace(/-/g, '')}\r\n`;
+            ical += `DTEND;VALUE=DATE:${milestone.date.replace(/-/g, '')}\r\n`;
+            ical += `SUMMARY:📍 ${milestone.name} (マイルストーン)\r\n`;
+            ical += `DESCRIPTION:${milestone.description}\\nタイプ: ${milestone.type}\\nプロジェクト: ${project ? project.name : 'All'}\r\n`;
+            ical += `CATEGORIES:MILESTONE,${milestone.priority.toUpperCase()}\r\n`;
+            ical += 'END:VEVENT\r\n';
+        });
+    }
+    
+    ical += 'END:VCALENDAR\r\n';
+    res.send(ical);
+});
+
+// 自動保存API
+app.post('/api/auto-save', (req, res) => {
+    const data = loadData();
+    const { type, payload, timestamp } = req.body;
+    
+    try {
+        switch (type) {
+            case 'task':
+                const taskIndex = data.tasks.findIndex(t => t.id === payload.id);
+                if (taskIndex !== -1) {
+                    data.tasks[taskIndex] = { ...data.tasks[taskIndex], ...payload };
+                }
+                break;
+            case 'project':
+                const projectIndex = data.projects.findIndex(p => p.id === payload.id);
+                if (projectIndex !== -1) {
+                    data.projects[projectIndex] = { ...data.projects[projectIndex], ...payload };
+                }
+                break;
+            case 'milestone':
+                const milestoneIndex = data.milestones.findIndex(m => m.id === payload.id);
+                if (milestoneIndex !== -1) {
+                    data.milestones[milestoneIndex] = { ...data.milestones[milestoneIndex], ...payload };
+                }
+                break;
+        }
+        
+        if (saveData(data)) {
+            res.json({ success: true, timestamp });
+        } else {
+            res.status(500).json({ error: '自動保存に失敗しました' });
+        }
+    } catch (error) {
+        console.error('自動保存エラー:', error);
+        res.status(500).json({ error: '自動保存処理でエラーが発生しました' });
+    }
 });
 
 // メインページの配信

@@ -61,6 +61,10 @@ async function initializeApp() {
         updateSelects();
         initializeCalendar();
         updateTasksList(); // タスクリストを明示的に更新
+        
+        // システム機能を開始
+        startAutoSave(5); // 5分間隔で自動保存
+        startSandboxMonitoring(30); // 30秒間隔で監視
     }, 100);
     
     console.log('プロジェクト管理システムの初期化が完了しました');
@@ -101,6 +105,7 @@ function switchTab(tabName) {
             break;
         case 'gantt':
             renderGanttChart();
+            updateMilestonesList();
             break;
         case 'workload':
             updateWorkloadView();
@@ -180,6 +185,32 @@ function setupEventListeners() {
     
     // 日付の初期設定
     setDefaultDates();
+    
+    // マイルストーン関連のイベントリスナー
+    const addMilestoneBtn = document.getElementById('add-milestone-btn');
+    const milestoneForm = document.getElementById('milestone-form');
+    const milestoneTypeFilter = document.getElementById('milestone-type-filter');
+    
+    if (addMilestoneBtn) {
+        addMilestoneBtn.addEventListener('click', () => openMilestoneModal());
+    }
+    if (milestoneForm) {
+        milestoneForm.addEventListener('submit', handleMilestoneSubmit);
+    }
+    if (milestoneTypeFilter) {
+        milestoneTypeFilter.addEventListener('change', renderMilestonesList);
+    }
+    
+    // カレンダー統合のイベントリスナー
+    const exportIcalBtn = document.getElementById('export-ical-btn');
+    const copyCalendarUrlBtn = document.getElementById('copy-calendar-url-btn');
+    
+    if (exportIcalBtn) {
+        exportIcalBtn.addEventListener('click', exportIcalFile);
+    }
+    if (copyCalendarUrlBtn) {
+        copyCalendarUrlBtn.addEventListener('click', copyCalendarUrl);
+    }
 }
 
 function setupFilterListeners() {
@@ -454,7 +485,7 @@ function updateSelect(selectId, data, displayField, placeholder) {
 }
 
 // ガントチャートの描画
-function renderGanttChart() {
+async function renderGanttChart() {
     const ganttContainer = document.getElementById('gantt-chart');
     if (!ganttContainer) return;
     
@@ -462,25 +493,49 @@ function renderGanttChart() {
     const memberFilter = document.getElementById('gantt-member-filter').value;
     
     let filteredTasks = currentData.tasks;
+    let milestones = [];
+    
+    // マイルストーンデータを取得
+    try {
+        const milestonesResponse = await fetch('/api/milestones');
+        if (milestonesResponse.ok) {
+            milestones = await milestonesResponse.json();
+        }
+    } catch (error) {
+        console.warn('マイルストーンの取得に失敗しました:', error);
+    }
     
     if (projectFilter) {
         filteredTasks = filteredTasks.filter(task => task.projectId == projectFilter);
+        milestones = milestones.filter(milestone => !milestone.projectId || milestone.projectId == projectFilter);
     }
     
     if (memberFilter) {
         filteredTasks = filteredTasks.filter(task => task.assigneeId == memberFilter);
     }
     
-    if (filteredTasks.length === 0) {
-        ganttContainer.innerHTML = '<p style="text-align: center; padding: 2rem; color: #64748b;">表示するタスクがありません</p>';
+    if (filteredTasks.length === 0 && milestones.length === 0) {
+        ganttContainer.innerHTML = '<p style="text-align: center; padding: 2rem; color: #64748b;">表示するデータがありません</p>';
         return;
     }
     
-    // 日付範囲の計算
-    const startDates = filteredTasks.map(task => new Date(task.startDate));
-    const endDates = filteredTasks.map(task => new Date(task.endDate));
-    const minDate = new Date(Math.min(...startDates));
-    const maxDate = new Date(Math.max(...endDates));
+    // 日付範囲の計算（タスクとマイルストーン両方を考慮）
+    const allDates = [];
+    filteredTasks.forEach(task => {
+        allDates.push(new Date(task.startDate));
+        allDates.push(new Date(task.endDate));
+    });
+    milestones.forEach(milestone => {
+        allDates.push(new Date(milestone.date));
+    });
+    
+    if (allDates.length === 0) {
+        ganttContainer.innerHTML = '<p style="text-align: center; padding: 2rem; color: #64748b;">表示するデータがありません</p>';
+        return;
+    }
+    
+    const minDate = new Date(Math.min(...allDates));
+    const maxDate = new Date(Math.max(...allDates));
     
     // 日付配列の生成
     const dateRange = [];
@@ -488,18 +543,37 @@ function renderGanttChart() {
         dateRange.push(new Date(d));
     }
     
-    // ガントチャートHTML生成
+    const cellWidth = 40;
+    const taskRowHeight = 70;
+    const milestoneRowHeight = 50;
+    const sectionHeaderHeight = 45;
+    
+    // SVGエリアでタスク依存関係を描画する準備
+    const svgArrows = generateDependencyArrows(filteredTasks, minDate, cellWidth, taskRowHeight, sectionHeaderHeight);
+    
+    // ガントチャートHTML生成（セクション分けして見やすく）
     const ganttHTML = `
         <div class="gantt-timeline">
-            <div class="gantt-timeline-header">タスク</div>
+            <div class="gantt-timeline-header">タスク・マイルストーン</div>
             <div class="gantt-date-header">
-                ${dateRange.map(date => 
-                    `<div class="gantt-date-cell">${date.getDate()}</div>`
-                ).join('')}
+                ${dateRange.map(date => {
+                    const isToday = new Date().toDateString() === date.toDateString();
+                    return `<div class="gantt-date-cell ${isToday ? 'gantt-today' : ''}">${date.getDate()}</div>`;
+                }).join('')}
             </div>
         </div>
-        <div class="gantt-content">
-            ${filteredTasks.map(task => {
+        <div class="gantt-content" style="position: relative;">
+            <!-- タスクセクション -->
+            ${filteredTasks.length > 0 ? `
+                <div class="gantt-section-header">
+                    <div class="gantt-task-info">
+                        <h4><i class="fas fa-tasks"></i> プロジェクトタスク (${filteredTasks.length}件)</h4>
+                    </div>
+                    <div class="gantt-timeline-bars"></div>
+                </div>
+            ` : ''}
+            
+            ${filteredTasks.map((task, index) => {
                 const member = currentData.members.find(m => m.id === task.assigneeId);
                 const project = currentData.projects.find(p => p.id === task.projectId);
                 const taskStart = new Date(task.startDate);
@@ -507,29 +581,513 @@ function renderGanttChart() {
                 const startOffset = Math.max(0, (taskStart - minDate) / (1000 * 60 * 60 * 24));
                 const duration = (taskEnd - taskStart) / (1000 * 60 * 60 * 24) + 1;
                 
+                // 進捗状況に応じた色の調整
+                let barColor = member ? member.color : '#6b7280';
+                let progressIndicator = '';
+                
+                if (task.actualProgress !== undefined) {
+                    const progressWidth = (duration * cellWidth * task.actualProgress / 100);
+                    progressIndicator = `
+                        <div class="gantt-progress-bar" 
+                             style="width: ${progressWidth}px; background: rgba(34, 197, 94, 0.8);"></div>
+                    `;
+                }
+                
+                // タスク依存関係の表示
+                let dependencyInfo = '';
+                if (task.predecessorTasks && task.predecessorTasks.length > 0) {
+                    const predNames = task.predecessorTasks.map(pred => {
+                        const predTask = currentData.tasks.find(t => t.id === pred.taskId);
+                        return predTask ? `${predTask.name}` + (pred.lag > 0 ? `+${pred.lag}日` : '') : 'Unknown';
+                    }).join(', ');
+                    dependencyInfo = `<div class="gantt-dependency-info"><i class="fas fa-link"></i> ${predNames}</div>`;
+                }
+                
+                // 遅延状況の判定
+                const today = new Date();
+                const endDate = new Date(task.endDate);
+                const isOverdue = endDate < today && task.status !== 'completed';
+                const delayClass = isOverdue ? 'gantt-overdue-task' : '';
+                
                 return `
-                    <div class="gantt-task-row">
+                    <div class="gantt-task-row ${delayClass}" data-task-id="${task.id}" data-row-index="${index}" style="height: ${taskRowHeight}px; min-height: ${taskRowHeight}px;">
                         <div class="gantt-task-info">
-                            <div>
-                                <strong>${task.name}</strong><br>
-                                <small>${member ? member.name : 'Unknown'}</small>
+                            <div class="task-content">
+                                <div class="task-header">
+                                    <strong class="task-name">${task.name}</strong>
+                                    ${isOverdue ? '<span class="overdue-indicator"><i class="fas fa-exclamation-triangle"></i></span>' : ''}
+                                </div>
+                                <div class="task-meta">
+                                    <span class="assignee"><i class="fas fa-user"></i> ${member ? member.name : 'Unknown'}</span>
+                                    <span class="project-tag" style="background: ${project ? project.color : '#6b7280'}22; color: ${project ? project.color : '#6b7280'};">
+                                        ${project ? project.name : 'No Project'}
+                                    </span>
+                                </div>
+                                ${dependencyInfo}
+                                ${task.actualProgress !== undefined ? `
+                                    <div class="progress-info">
+                                        <span class="progress-badge">${task.actualProgress}%</span>
+                                        <div class="progress-bar-mini">
+                                            <div class="progress-fill" style="width: ${task.actualProgress}%"></div>
+                                        </div>
+                                    </div>
+                                ` : ''}
                             </div>
                         </div>
-                        <div class="gantt-timeline-bars">
-                            <div class="gantt-task-bar" 
-                                 style="left: ${startOffset * 40}px; 
-                                        width: ${duration * 40}px; 
-                                        background: ${member ? member.color : '#6b7280'}">
-                                ${task.name}
+                        <div class="gantt-timeline-bars" style="position: relative; height: ${taskRowHeight}px; display: flex; align-items: center;">
+                            <div class="gantt-task-bar ${isOverdue ? 'overdue-bar' : ''}" 
+                                 style="left: ${startOffset * cellWidth}px; 
+                                        width: ${duration * cellWidth}px; 
+                                        height: 35px;
+                                        background: ${barColor};
+                                        position: absolute;
+                                        top: 50%;
+                                        transform: translateY(-50%);"
+                                 title="${task.name} (${task.startDate} - ${task.endDate})">
+                                ${progressIndicator}
+                                <span class="gantt-task-label">${task.name}</span>
                             </div>
                         </div>
                     </div>
                 `;
             }).join('')}
+            
+            <!-- マイルストーンセクション -->
+            ${milestones.length > 0 ? `
+                <div class="gantt-section-divider"></div>
+                <div class="gantt-section-header milestone-section-header">
+                    <div class="gantt-task-info">
+                        <h4><i class="fas fa-flag"></i> マイルストーン (${milestones.length}件)</h4>
+                    </div>
+                    <div class="gantt-timeline-bars"></div>
+                </div>
+            ` : ''}
+            
+            ${milestones.map((milestone, index) => {
+                const milestoneDate = new Date(milestone.date);
+                const dayOffset = (milestoneDate - minDate) / (1000 * 60 * 60 * 24);
+                
+                // マイルストーンタイプごとのアイコンと色
+                const milestoneTypes = {
+                    'delivery': { icon: '📦', color: '#dc2626', label: '納品' },
+                    'report': { icon: '📊', color: '#7c3aed', label: '報告' },
+                    'review': { icon: '👥', color: '#059669', label: 'レビュー' },
+                    'meeting': { icon: '🤝', color: '#0891b2', label: '会議' },
+                    'deadline': { icon: '⏰', color: '#ea580c', label: '締切' }
+                };
+                
+                const type = milestoneTypes[milestone.type] || { icon: '📍', color: '#6b7280', label: 'その他' };
+                const isPastDue = new Date(milestone.date) < new Date() && milestone.status === 'pending';
+                const project = currentData.projects.find(p => p.id === milestone.projectId);
+                
+                return `
+                    <div class="gantt-milestone-row" style="height: ${milestoneRowHeight}px; min-height: ${milestoneRowHeight}px;" data-milestone-id="${milestone.id}">
+                        <div class="gantt-task-info">
+                            <div class="gantt-milestone-info">
+                                <div class="milestone-header">
+                                    <span class="milestone-type-badge" style="background: ${type.color};">
+                                        ${type.icon} ${type.label}
+                                    </span>
+                                    <strong class="milestone-name">${milestone.name}</strong>
+                                    ${isPastDue ? '<span class="overdue-badge"><i class="fas fa-exclamation-triangle"></i> 遅延</span>' : ''}
+                                </div>
+                                <div class="milestone-meta">
+                                    <span class="milestone-date"><i class="fas fa-calendar"></i> ${moment(milestone.date).format('MM/DD')}</span>
+                                    ${project ? `<span class="project-tag" style="background: ${project.color}22; color: ${project.color};">${project.name}</span>` : ''}
+                                    ${milestone.description ? `<div class="milestone-desc">${milestone.description}</div>` : ''}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="gantt-timeline-bars" style="height: ${milestoneRowHeight}px; display: flex; align-items: center; position: relative;">
+                            <div class="gantt-milestone-marker ${isPastDue ? 'overdue-milestone' : ''}" 
+                                 style="left: ${dayOffset * cellWidth - 15}px; position: absolute;"
+                                 title="${milestone.name} - ${milestone.date}">
+                                <div class="milestone-diamond" style="border-color: ${type.color}; background: white;"></div>
+                                <div class="milestone-label">${type.icon}</div>
+                                <div class="milestone-line" style="border-color: ${type.color};"></div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('')}
+            
+            <!-- SVG for dependency arrows -->
+            <svg class="gantt-dependency-svg" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10;">
+                ${svgArrows}
+            </svg>
         </div>
     `;
     
     ganttContainer.innerHTML = ganttHTML;
+    
+    // 依存関係のドラッグ＆ドロップ機能を追加
+    addDependencyDragListeners();
+}
+
+// タスク依存関係の矢印を生成（セクション分けレイアウト対応）
+function generateDependencyArrows(tasks, minDate, cellWidth, taskRowHeight, sectionHeaderHeight) {
+    let arrows = [];
+    
+    // タスクセクションのヘッダー高さを考慮
+    const taskSectionOffset = sectionHeaderHeight;
+    
+    tasks.forEach((task, taskIndex) => {
+        if (!task.predecessorTasks || task.predecessorTasks.length === 0) return;
+        
+        task.predecessorTasks.forEach(pred => {
+            const predTask = tasks.find(t => t.id === pred.taskId);
+            const predIndex = tasks.findIndex(t => t.id === pred.taskId);
+            
+            if (!predTask || predIndex === -1) return;
+            
+            // 座標計算（セクションヘッダーを考慮）
+            const predStart = new Date(predTask.startDate);
+            const predEnd = new Date(predTask.endDate);
+            const taskStart = new Date(task.startDate);
+            
+            // 先行タスクの終了点とタスクの開始点
+            const predEndX = ((predEnd - minDate) / (1000 * 60 * 60 * 24)) * cellWidth + 300; // 300は左側の情報欄の幅
+            const predY = taskSectionOffset + predIndex * taskRowHeight + taskRowHeight / 2;
+            const taskStartX = ((taskStart - minDate) / (1000 * 60 * 60 * 24)) * cellWidth + 300;
+            const taskY = taskSectionOffset + taskIndex * taskRowHeight + taskRowHeight / 2;
+            
+            // 矢印の色（依存関係タイプに応じて）
+            const arrowColor = pred.type === 'start_to_start' ? '#f59e0b' : 
+                              pred.type === 'finish_to_finish' ? '#8b5cf6' : 
+                              pred.type === 'start_to_finish' ? '#ef4444' : '#3b82f6';
+            
+            // ラグがある場合の調整
+            let adjustedTaskStartX = taskStartX;
+            if (pred.lag && pred.lag > 0) {
+                adjustedTaskStartX = predEndX + (pred.lag * cellWidth);
+            }
+            
+            // 矢印パスの生成（なめらかなカーブ）
+            const midX = (predEndX + adjustedTaskStartX) / 2;
+            const controlY1 = predY;
+            const controlY2 = taskY;
+            const path = `M ${predEndX} ${predY} C ${midX} ${controlY1}, ${midX} ${controlY2}, ${adjustedTaskStartX - 8} ${taskY}`;
+            
+            // 依存関係タイプに応じたスタイル
+            const strokeDash = pred.lag > 0 ? '5,5' : pred.type === 'start_to_start' ? '10,5' : 'none';
+            
+            arrows.push(`
+                <g class="dependency-arrow" data-from="${pred.taskId}" data-to="${task.id}" data-type="${pred.type}">
+                    <path d="${path}" 
+                          stroke="${arrowColor}" 
+                          stroke-width="2" 
+                          fill="none" 
+                          stroke-dasharray="${strokeDash}"
+                          opacity="0.8" />
+                    <polygon points="${adjustedTaskStartX - 8},${taskY - 4} ${adjustedTaskStartX - 8},${taskY + 4} ${adjustedTaskStartX},${taskY}" 
+                             fill="${arrowColor}" 
+                             opacity="0.9" />
+                    ${pred.lag > 0 ? `
+                        <rect x="${midX - 15}" y="${(predY + taskY) / 2 - 8}" 
+                              width="30" height="16" 
+                              fill="white" 
+                              stroke="${arrowColor}" 
+                              stroke-width="1" 
+                              rx="8" 
+                              opacity="0.9" />
+                        <text x="${midX}" y="${(predY + taskY) / 2 + 3}" 
+                              fill="${arrowColor}" 
+                              font-size="10" 
+                              font-weight="600"
+                              text-anchor="middle">+${pred.lag}日</text>
+                    ` : ''}
+                </g>
+            `);
+        });
+    });
+    
+    return arrows.join('');
+}
+
+// 依存関係のドラッグ＆ドロップリスナーを追加
+function addDependencyDragListeners() {
+    // 今後実装予定: タスクバーからドラッグして依存関係を作成
+    console.log('依存関係ドラッグ機能は今後実装予定');
+}
+
+// 先行タスクを追加する関数
+function addPredecessorTask() {
+    const container = document.getElementById('predecessor-tasks-container');
+    const index = container.children.length;
+    
+    const predecessorDiv = document.createElement('div');
+    predecessorDiv.className = 'predecessor-task-item';
+    predecessorDiv.innerHTML = `
+        <select class="predecessor-task-select" data-index="${index}">
+            <option value="">先行タスクを選択</option>
+            ${currentData.tasks.map(task => 
+                `<option value="${task.id}">${task.name}</option>`
+            ).join('')}
+        </select>
+        
+        <select class="dependency-type-select" data-index="${index}">
+            <option value="finish_to_start">終了→開始</option>
+            <option value="start_to_start">開始→開始</option>
+            <option value="finish_to_finish">終了→終了</option>
+            <option value="start_to_finish">開始→終了</option>
+        </select>
+        
+        <input type="number" class="dependency-lag-input" data-index="${index}" 
+               placeholder="ラグ日数" min="0" step="1" value="0">
+        
+        <button type="button" class="remove-predecessor" onclick="removePredecessorTask(this)">
+            <i class="fas fa-times"></i>
+        </button>
+    `;
+    
+    container.appendChild(predecessorDiv);
+}
+
+// 先行タスクを削除する関数
+function removePredecessorTask(button) {
+    const container = document.getElementById('predecessor-tasks-container');
+    const item = button.closest('.predecessor-task-item');
+    container.removeChild(item);
+}
+
+// タスクフォームでの依存関係データを取得
+function getPredecessorTasksFromForm() {
+    const predecessorTasks = [];
+    const container = document.getElementById('predecessor-tasks-container');
+    
+    Array.from(container.children).forEach(item => {
+        const taskSelect = item.querySelector('.predecessor-task-select');
+        const typeSelect = item.querySelector('.dependency-type-select');
+        const lagInput = item.querySelector('.dependency-lag-input');
+        
+        if (taskSelect.value) {
+            predecessorTasks.push({
+                taskId: parseInt(taskSelect.value),
+                type: typeSelect.value,
+                lag: parseInt(lagInput.value) || 0
+            });
+        }
+    });
+    
+    return predecessorTasks;
+}
+
+// タスクフォームに依存関係データを設定
+function setPredecessorTasksInForm(predecessorTasks) {
+    const container = document.getElementById('predecessor-tasks-container');
+    container.innerHTML = '';
+    
+    if (predecessorTasks && predecessorTasks.length > 0) {
+        predecessorTasks.forEach(pred => {
+            addPredecessorTask();
+            const lastItem = container.lastElementChild;
+            lastItem.querySelector('.predecessor-task-select').value = pred.taskId;
+            lastItem.querySelector('.dependency-type-select').value = pred.type || 'finish_to_start';
+            lastItem.querySelector('.dependency-lag-input').value = pred.lag || 0;
+        });
+    }
+}
+
+// マイルストーン管理機能
+let currentMilestones = [];
+
+// マイルストーン一覧を更新
+async function updateMilestonesList() {
+    try {
+        const response = await fetch('/api/milestones');
+        if (response.ok) {
+            currentMilestones = await response.json();
+            renderMilestonesList();
+        }
+    } catch (error) {
+        console.error('マイルストーン取得エラー:', error);
+        showNotification('マイルストーンの取得に失敗しました', 'error');
+    }
+}
+
+// マイルストーン一覧の描画
+function renderMilestonesList() {
+    const container = document.getElementById('milestones-list');
+    const typeFilter = document.getElementById('milestone-type-filter').value;
+    
+    let filteredMilestones = currentMilestones;
+    if (typeFilter) {
+        filteredMilestones = currentMilestones.filter(m => m.type === typeFilter);
+    }
+    
+    if (filteredMilestones.length === 0) {
+        container.innerHTML = '<p style="text-align: center; padding: 2rem; color: #64748b;">マイルストーンがありません</p>';
+        return;
+    }
+    
+    const tableHTML = `
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>名前</th>
+                    <th>日付</th>
+                    <th>タイプ</th>
+                    <th>ステータス</th>
+                    <th>優先度</th>
+                    <th>プロジェクト</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${filteredMilestones.map(milestone => {
+                    const project = currentData.projects.find(p => p.id === milestone.projectId);
+                    const milestoneTypes = {
+                        'delivery': '📦 納品',
+                        'report': '📊 報告',
+                        'review': '👥 レビュー',
+                        'meeting': '🤝 会議',
+                        'deadline': '⏰ 締切'
+                    };
+                    
+                    return `
+                        <tr>
+                            <td><strong>${milestone.name}</strong>
+                                ${milestone.description ? `<br><small>${milestone.description}</small>` : ''}
+                            </td>
+                            <td>${moment(milestone.date).format('YYYY/MM/DD')}</td>
+                            <td>${milestoneTypes[milestone.type] || milestone.type}</td>
+                            <td><span class="status-badge status-${milestone.status}">${getStatusText(milestone.status)}</span></td>
+                            <td><span class="priority-badge priority-${milestone.priority}">${getPriorityText(milestone.priority)}</span></td>
+                            <td>${project ? project.name : 'すべて'}</td>
+                            <td>
+                                <button class="btn btn-small btn-secondary" onclick="editMilestone(${milestone.id})">
+                                    <i class="fas fa-edit"></i> 編集
+                                </button>
+                                <button class="btn btn-small btn-danger" onclick="deleteMilestone(${milestone.id})">
+                                    <i class="fas fa-trash"></i> 削除
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                }).join('')}
+            </tbody>
+        </table>
+    `;
+    
+    container.innerHTML = tableHTML;
+}
+
+// マイルストーンモーダルを開く
+function openMilestoneModal(milestoneId = null) {
+    const modal = document.getElementById('milestone-modal');
+    const title = document.getElementById('milestone-modal-title');
+    const form = document.getElementById('milestone-form');
+    
+    form.reset();
+    document.getElementById('milestone-id').value = '';
+    
+    // プロジェクト選択肢を更新
+    updateMilestoneProjectOptions();
+    // 関連タスク選択肢を更新
+    updateMilestoneRelatedTaskOptions();
+    
+    if (milestoneId) {
+        title.textContent = 'マイルストーン編集';
+        const milestone = currentMilestones.find(m => m.id === milestoneId);
+        if (milestone) {
+            document.getElementById('milestone-id').value = milestone.id;
+            document.getElementById('milestone-name').value = milestone.name;
+            document.getElementById('milestone-description').value = milestone.description || '';
+            document.getElementById('milestone-date').value = milestone.date;
+            document.getElementById('milestone-project').value = milestone.projectId || '';
+            document.getElementById('milestone-type').value = milestone.type;
+            document.getElementById('milestone-priority').value = milestone.priority;
+            document.getElementById('milestone-status').value = milestone.status;
+            
+            // 関連タスクを設定
+            const relatedTasksSelect = document.getElementById('milestone-related-tasks');
+            Array.from(relatedTasksSelect.options).forEach(option => {
+                option.selected = milestone.relatedTasks && milestone.relatedTasks.includes(parseInt(option.value));
+            });
+        }
+    } else {
+        title.textContent = 'マイルストーン追加';
+        // デフォルト値を設定
+        document.getElementById('milestone-type').value = 'delivery';
+        document.getElementById('milestone-priority').value = 'medium';
+        document.getElementById('milestone-status').value = 'pending';
+        document.getElementById('milestone-date').value = new Date().toISOString().split('T')[0];
+    }
+    
+    modal.classList.add('show');
+}
+
+// マイルストーンモーダルを閉じる
+function closeMilestoneModal() {
+    const modal = document.getElementById('milestone-modal');
+    modal.classList.remove('show');
+}
+
+// マイルストーンのプロジェクト選択肢を更新
+function updateMilestoneProjectOptions() {
+    const select = document.getElementById('milestone-project');
+    
+    // 既存のオプション（最初の選択肢以外）を削除
+    while (select.children.length > 1) {
+        select.removeChild(select.lastChild);
+    }
+    
+    // プロジェクトオプションを追加
+    currentData.projects.forEach(project => {
+        const option = document.createElement('option');
+        option.value = project.id;
+        option.textContent = project.name;
+        select.appendChild(option);
+    });
+}
+
+// マイルストーンの関連タスク選択肢を更新
+function updateMilestoneRelatedTaskOptions() {
+    const select = document.getElementById('milestone-related-tasks');
+    
+    // 既存のオプション（最初の選択肢以外）を削除
+    while (select.children.length > 1) {
+        select.removeChild(select.lastChild);
+    }
+    
+    // タスクオプションを追加
+    currentData.tasks.forEach(task => {
+        const option = document.createElement('option');
+        option.value = task.id;
+        option.textContent = `${task.name} (${task.projectId ? currentData.projects.find(p => p.id === task.projectId)?.name || 'Unknown' : 'No Project'})`;
+        select.appendChild(option);
+    });
+}
+
+// マイルストーン編集
+function editMilestone(milestoneId) {
+    openMilestoneModal(milestoneId);
+}
+
+// マイルストーン削除
+async function deleteMilestone(milestoneId) {
+    if (!confirm('このマイルストーンを削除しますか？')) return;
+    
+    showLoading(true);
+    try {
+        const response = await fetch(`/api/milestones/${milestoneId}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            showNotification('マイルストーンを削除しました', 'success');
+            await updateMilestonesList();
+            await renderGanttChart(); // ガントチャートも更新
+        } else {
+            const error = await response.json();
+            throw new Error(error.error || 'マイルストーンの削除に失敗しました');
+        }
+    } catch (error) {
+        console.error('マイルストーン削除エラー:', error);
+        showNotification('マイルストーンの削除に失敗しました', 'error');
+    } finally {
+        showLoading(false);
+    }
 }
 
 // 業務負荷ビューの更新
@@ -1313,6 +1871,9 @@ function openTaskModal(taskId = null) {
             
             // 連動タスクの設定
             updateLinkedTasksSelect(taskId);
+            
+            // 先行タスク（依存関係）の設定
+            setPredecessorTasksInForm(task.predecessorTasks);
         }
     } else {
         title.textContent = 'タスク追加';
@@ -1323,6 +1884,9 @@ function openTaskModal(taskId = null) {
         
         // 連動タスクの設定
         updateLinkedTasksSelect();
+        
+        // 先行タスクをクリア
+        setPredecessorTasksInForm([]);
     }
     
     modal.classList.add('show');
@@ -1354,7 +1918,8 @@ async function handleTaskSubmit(event) {
         approvalDocuments: document.getElementById('task-approval-documents').value || null,
         plannedProgress: parseInt(document.getElementById('task-planned-progress').value) || 0,
         actualProgress: parseInt(document.getElementById('task-actual-progress').value) || 0,
-        linkedTasks: getSelectedLinkedTasks()
+        linkedTasks: getSelectedLinkedTasks(),
+        predecessorTasks: getPredecessorTasksFromForm()
     };
     
     const url = taskId ? `/api/tasks/${taskId}` : '/api/tasks';
@@ -1751,6 +2316,27 @@ window.closeRescheduleModal = closeRescheduleModal;
 window.handleReschedule = handleReschedule;
 window.exportProgressHistoryToCSV = exportProgressHistoryToCSV;
 window.exportScheduleChangesToCSV = exportScheduleChangesToCSV;
+
+// マイルストーン管理関数をグローバルに公開
+window.openMilestoneModal = openMilestoneModal;
+window.closeMilestoneModal = closeMilestoneModal;
+window.editMilestone = editMilestone;
+window.deleteMilestone = deleteMilestone;
+window.handleMilestoneSubmit = handleMilestoneSubmit;
+
+// タスク依存関係管理関数をグローバルに公開
+window.addPredecessorTask = addPredecessorTask;
+window.removePredecessorTask = removePredecessorTask;
+
+// カレンダー統合関数をグローバルに公開
+window.exportIcalFile = exportIcalFile;
+window.copyCalendarUrl = copyCalendarUrl;
+
+// システム機能の関数をグローバルに公開
+window.startAutoSave = startAutoSave;
+window.stopAutoSave = stopAutoSave;
+window.startSandboxMonitoring = startSandboxMonitoring;
+window.stopSandboxMonitoring = stopSandboxMonitoring;
 
 // 承認申請モーダル
 function openSubmitApprovalModal(taskId) {
@@ -2421,4 +3007,275 @@ function getSelectedLinkedTasks() {
     
     const selectedOptions = Array.from(select.selectedOptions);
     return selectedOptions.map(option => parseInt(option.value));
+}
+
+// マイルストーンフォーム送信ハンドラー
+async function handleMilestoneSubmit(event) {
+    event.preventDefault();
+    
+    const milestoneId = document.getElementById('milestone-id').value;
+    const relatedTasksSelect = document.getElementById('milestone-related-tasks');
+    const selectedRelatedTasks = Array.from(relatedTasksSelect.selectedOptions).map(option => parseInt(option.value));
+    
+    const formData = {
+        name: document.getElementById('milestone-name').value,
+        description: document.getElementById('milestone-description').value || null,
+        date: document.getElementById('milestone-date').value,
+        projectId: document.getElementById('milestone-project').value || null,
+        type: document.getElementById('milestone-type').value,
+        priority: document.getElementById('milestone-priority').value,
+        status: document.getElementById('milestone-status').value,
+        relatedTasks: selectedRelatedTasks.filter(id => !isNaN(id))
+    };
+    
+    const url = milestoneId ? `/api/milestones/${milestoneId}` : '/api/milestones';
+    const method = milestoneId ? 'PUT' : 'POST';
+    
+    showLoading(true);
+    try {
+        const response = await fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(formData)
+        });
+        
+        if (response.ok) {
+            showNotification(milestoneId ? 'マイルストーンを更新しました' : 'マイルストーンを追加しました', 'success');
+            closeMilestoneModal();
+            await updateMilestonesList();
+            await renderGanttChart(); // ガントチャートも更新
+        } else {
+            const error = await response.json();
+            throw new Error(error.error || 'マイルストーンの保存に失敗しました');
+        }
+    } catch (error) {
+        console.error('マイルストーン保存エラー:', error);
+        showNotification('マイルストーンの保存に失敗しました', 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+// カレンダー統合機能
+async function exportIcalFile() {
+    showLoading(true);
+    try {
+        const response = await fetch('/api/calendar/ical');
+        if (response.ok) {
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = `project-calendar-${moment().format('YYYY-MM-DD')}.ics`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+            showNotification('iCalファイルをダウンロードしました', 'success');
+        } else {
+            const error = await response.json();
+            throw new Error(error.error || 'iCalファイルの生成に失敗しました');
+        }
+    } catch (error) {
+        console.error('iCal出力エラー:', error);
+        showNotification('iCalファイルの生成に失敗しました', 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+async function copyCalendarUrl() {
+    try {
+        // サーバーのURL取得（実際の実装では環境変数やAPIから取得）
+        const baseUrl = window.location.origin;
+        const calendarUrl = `${baseUrl}/api/calendar/ical`;
+        
+        // クリップボードにコピー
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(calendarUrl);
+        } else {
+            // フォールバック: 一時的なテキストエリアを作成
+            const textArea = document.createElement('textarea');
+            textArea.value = calendarUrl;
+            textArea.style.position = 'absolute';
+            textArea.style.left = '-999999px';
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+        }
+        
+        showNotification(`カレンダーURLをクリップボードにコピーしました: ${calendarUrl}`, 'success');
+    } catch (error) {
+        console.error('URLコピーエラー:', error);
+        showNotification('URLのコピーに失敗しました', 'error');
+    }
+}
+
+// 自動保存機能
+let autoSaveInterval = null;
+let isAutoSaving = false;
+
+function startAutoSave(intervalMinutes = 5) {
+    // 既存の自動保存を停止
+    stopAutoSave();
+    
+    console.log(`自動保存を開始しました（${intervalMinutes}分間隔）`);
+    
+    autoSaveInterval = setInterval(async () => {
+        if (isAutoSaving) return; // 既に保存中の場合はスキップ
+        
+        isAutoSaving = true;
+        try {
+            const response = await fetch('/api/auto-save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    timestamp: new Date().toISOString(),
+                    data: currentData
+                })
+            });
+            
+            if (response.ok) {
+                console.log('自動保存が完了しました:', new Date().toLocaleString());
+                
+                // 成功の場合は目立たない通知
+                const notification = document.createElement('div');
+                notification.className = 'auto-save-indicator';
+                notification.innerHTML = '<i class="fas fa-save"></i> 自動保存完了';
+                notification.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    background: #10b981;
+                    color: white;
+                    padding: 8px 16px;
+                    border-radius: 4px;
+                    z-index: 9999;
+                    font-size: 0.9rem;
+                    opacity: 0.9;
+                `;
+                document.body.appendChild(notification);
+                
+                setTimeout(() => {
+                    if (notification.parentNode) {
+                        notification.parentNode.removeChild(notification);
+                    }
+                }, 2000);
+            } else {
+                console.warn('自動保存に失敗しました');
+            }
+        } catch (error) {
+            console.warn('自動保存エラー:', error);
+        } finally {
+            isAutoSaving = false;
+        }
+    }, intervalMinutes * 60 * 1000);
+}
+
+function stopAutoSave() {
+    if (autoSaveInterval) {
+        clearInterval(autoSaveInterval);
+        autoSaveInterval = null;
+        console.log('自動保存を停止しました');
+    }
+}
+
+// サンドボックス自動回復システム
+let healthCheckInterval = null;
+let isHealthy = true;
+let consecutiveErrors = 0;
+const MAX_CONSECUTIVE_ERRORS = 3;
+
+function startSandboxMonitoring(intervalSeconds = 30) {
+    console.log('サンドボックス監視を開始しました');
+    
+    healthCheckInterval = setInterval(async () => {
+        try {
+            const response = await fetch('/api/health', { 
+                method: 'GET',
+                timeout: 10000 // 10秒タイムアウト
+            });
+            
+            if (response.ok) {
+                const healthData = await response.json();
+                
+                if (consecutiveErrors > 0) {
+                    console.log('サンドボックスが回復しました');
+                    showNotification('システムが正常に回復しました', 'success');
+                    consecutiveErrors = 0;
+                }
+                isHealthy = true;
+                
+                // ヘルスメトリクスをチェック
+                if (healthData.warnings && healthData.warnings.length > 0) {
+                    console.warn('システム警告:', healthData.warnings);
+                }
+            } else {
+                throw new Error(`Health check failed: ${response.status}`);
+            }
+        } catch (error) {
+            consecutiveErrors++;
+            console.error(`ヘルスチェックエラー (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS}):`, error);
+            
+            if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS && isHealthy) {
+                isHealthy = false;
+                console.error('サンドボックスエラーを検出しました。自動回復を試行します...');
+                showNotification('システムエラーを検出しました。自動回復を試行中...', 'warning');
+                
+                // 自動回復の実行
+                attemptAutoRecovery();
+            }
+        }
+    }, intervalSeconds * 1000);
+}
+
+async function attemptAutoRecovery() {
+    try {
+        console.log('自動回復プロセスを開始します...');
+        
+        // 1. データの再読み込み
+        await loadAllData();
+        
+        // 2. UI要素の再初期化
+        updateSelects();
+        updateDashboard();
+        
+        // 3. 重要なコンポーネントの再起動チェック
+        const recoveryResponse = await fetch('/api/recovery/restart', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                timestamp: new Date().toISOString(),
+                errorCount: consecutiveErrors
+            })
+        });
+        
+        if (recoveryResponse.ok) {
+            console.log('自動回復が成功しました');
+            showNotification('システムの自動回復が完了しました', 'success');
+            consecutiveErrors = 0;
+            isHealthy = true;
+        } else {
+            throw new Error('回復プロセスが失敗しました');
+        }
+    } catch (recoveryError) {
+        console.error('自動回復に失敗しました:', recoveryError);
+        showNotification('自動回復に失敗しました。システム管理者に連絡してください', 'error');
+        
+        // 手動介入が必要な場合のフォールバック
+        if (confirm('自動回復に失敗しました。ページを再読み込みしますか？')) {
+            window.location.reload();
+        }
+    }
+}
+
+function stopSandboxMonitoring() {
+    if (healthCheckInterval) {
+        clearInterval(healthCheckInterval);
+        healthCheckInterval = null;
+        console.log('サンドボックス監視を停止しました');
+    }
 }

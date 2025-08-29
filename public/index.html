@@ -118,6 +118,55 @@
                             <!-- ガントチャートがここに表示されます -->
                         </div>
                     </div>
+                    
+                    <!-- マイルストーン管理 -->
+                    <div class="milestone-management">
+                        <div class="milestone-controls">
+                            <h3><i class="fas fa-flag"></i> マイルストーン管理</h3>
+                            <button id="add-milestone-btn" class="btn btn-primary">
+                                <i class="fas fa-plus"></i> マイルストーン追加
+                            </button>
+                        </div>
+                        
+                        <div class="milestone-filter">
+                            <select id="milestone-type-filter" class="milestone-type-filter">
+                                <option value="">すべてのタイプ</option>
+                                <option value="delivery">📦 納品</option>
+                                <option value="report">📊 報告</option>
+                                <option value="review">👥 レビュー</option>
+                                <option value="meeting">🤝 会議</option>
+                                <option value="deadline">⏰ 締切</option>
+                            </select>
+                        </div>
+                        
+                        <div id="milestones-list" class="table-container">
+                            <!-- マイルストーンのリストがここに表示されます -->
+                        </div>
+                    </div>
+                    
+                    <!-- カレンダー統合 -->
+                    <div class="calendar-integration">
+                        <h3><i class="fas fa-calendar-alt"></i> カレンダー統合</h3>
+                        <p>プロジェクトのタスクとマイルストーンをGoogle CalendarやOutlookと同期できます。</p>
+                        
+                        <div class="calendar-export-options">
+                            <button id="export-ical-btn" class="btn btn-secondary">
+                                <i class="fas fa-download"></i> iCalファイル出力
+                            </button>
+                            <button id="copy-calendar-url-btn" class="btn btn-secondary">
+                                <i class="fas fa-copy"></i> カレンダーURL取得
+                            </button>
+                        </div>
+                        
+                        <div class="calendar-instructions" style="margin-top: 1rem; font-size: 0.9rem; color: #64748b;">
+                            <h4>連携方法:</h4>
+                            <ul style="margin-left: 2rem; line-height: 1.6;">
+                                <li><strong>Google Calendar:</strong> 「他のカレンダー」→「URL で追加」にカレンダーURLを貼り付け</li>
+                                <li><strong>Outlook:</strong> 「カレンダーを追加」→「インターネットから」にカレンダーURLを入力</li>
+                                <li><strong>その他:</strong> iCalファイルをダウンロードして各カレンダーアプリにインポート</li>
+                            </ul>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -473,6 +522,21 @@
                         </select>
                         <small class="form-hint">このタスクが遅延した場合に影響を受けるタスクを選択</small>
                     </div>
+                    
+                    <!-- 依存関係設定 -->
+                    <div class="dependency-input-group">
+                        <h4><i class="fas fa-link"></i> タスク依存関係</h4>
+                        <div id="predecessor-tasks-container">
+                            <!-- 先行タスクのリストがここに追加されます -->
+                        </div>
+                        <button type="button" class="add-predecessor" onclick="addPredecessorTask()">
+                            <i class="fas fa-plus"></i> 先行タスクを追加
+                        </button>
+                        <small class="form-hint">
+                            このタスクが開始する前に完了している必要があるタスクを設定します。<br>
+                            ラグ日数を設定すると「先行タスク完了 + XX日後」に開始できます。
+                        </small>
+                    </div>
                     <div id="workload-warning" class="workload-warning" style="display: none;">
                         <i class="fas fa-exclamation-triangle"></i>
                         <span id="workload-warning-text"></span>
@@ -808,6 +872,92 @@
                             <i class="fas fa-save"></i> スケジュール変更
                         </button>
                         <button type="button" class="btn btn-secondary" onclick="closeRescheduleModal()">
+                            <i class="fas fa-times"></i> キャンセル
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- マイルストーン追加/編集モーダル -->
+    <div id="milestone-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-flag"></i> <span id="milestone-modal-title">マイルストーン追加</span></h3>
+                <button class="modal-close" onclick="closeMilestoneModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="milestone-form">
+                    <input type="hidden" id="milestone-id">
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="milestone-name">マイルストーン名 <span class="required">*</span></label>
+                            <input type="text" id="milestone-name" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="milestone-date">日付 <span class="required">*</span></label>
+                            <input type="date" id="milestone-date" required>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="milestone-description">説明</label>
+                        <textarea id="milestone-description" rows="3"></textarea>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="milestone-project">プロジェクト</label>
+                            <select id="milestone-project">
+                                <option value="">すべてのプロジェクト</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="milestone-type">タイプ</label>
+                            <select id="milestone-type">
+                                <option value="delivery">📦 納品</option>
+                                <option value="report">📊 報告</option>
+                                <option value="review">👥 レビュー</option>
+                                <option value="meeting">🤝 会議</option>
+                                <option value="deadline">⏰ 締切</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="milestone-priority">優先度</label>
+                            <select id="milestone-priority">
+                                <option value="low">低</option>
+                                <option value="medium">中</option>
+                                <option value="high">高</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="milestone-status">ステータス</label>
+                            <select id="milestone-status">
+                                <option value="pending">未完了</option>
+                                <option value="completed">完了</option>
+                                <option value="overdue">遅延</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="milestone-related-tasks">関連タスク</label>
+                        <select id="milestone-related-tasks" multiple>
+                            <option value="">関連するタスクを選択</option>
+                        </select>
+                        <small class="form-hint">このマイルストーンに関連するタスクを選択してください</small>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> 保存
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="closeMilestoneModal()">
                             <i class="fas fa-times"></i> キャンセル
                         </button>
                     </div>
